@@ -229,7 +229,9 @@ function drawFaceScaled(
   ctx: CanvasRenderingContext2D,
   skinData: ImageData,
   src: Rect,
-  dst: Rect
+  dst: Rect,
+  flipH = false,
+  flipV = false
 ) {
   const scaleX = dst.w / src.w;
   const scaleY = dst.h / src.h;
@@ -237,8 +239,11 @@ function drawFaceScaled(
   for (let dy = 0; dy < dst.h; dy++) {
     for (let dx = 0; dx < dst.w; dx++) {
       // Map destination pixel back to source pixel (nearest-neighbor)
-      const sx = Math.floor(dx / scaleX);
-      const sy = Math.floor(dy / scaleY);
+      let sx = Math.floor(dx / scaleX);
+      let sy = Math.floor(dy / scaleY);
+
+      if (flipH) sx = src.w - 1 - sx;
+      if (flipV) sy = src.h - 1 - sy;
 
       const srcIdx = ((src.y + sy) * 64 + (src.x + sx)) * 4;
       const r = skinData.data[srcIdx];
@@ -274,11 +279,22 @@ function mapBodyPart(
   ctx: CanvasRenderingContext2D,
   skinData: ImageData,
   mcPart: BodyPartFaces,
-  robloxPart: BodyPartFaces
+  robloxPart: BodyPartFaces,
+  partName?: string
 ) {
   const faces: (keyof BodyPartFaces)[] = ['front', 'back', 'left', 'right', 'top', 'bottom'];
   for (const face of faces) {
-    drawFaceScaled(ctx, skinData, mcPart[face], robloxPart[face]);
+    let flipH = false;
+    let flipV = false;
+
+    // Flip the torso bottom face horizontally and vertically to correct
+    // anatomical inversion in Roblox Classic clothing template projection.
+    if (partName === 'torso' && face === 'bottom') {
+      flipH = true;
+      flipV = true;
+    }
+
+    drawFaceScaled(ctx, skinData, mcPart[face], robloxPart[face], flipH, flipV);
   }
 }
 
@@ -365,7 +381,7 @@ export function generateRobloxShirtCanvas(skinImage: HTMLImageElement): HTMLCanv
 
   // ── Base layers ──
   // Torso
-  mapBodyPart(ctx, skinData, MC_BODY, ROBLOX_TORSO);
+  mapBodyPart(ctx, skinData, MC_BODY, ROBLOX_TORSO, 'torso');
   // Right Arm → Right limb position on template
   mapBodyPart(ctx, skinData, rightArm, ROBLOX_RIGHT_LIMB);
   // Left Arm → Left limb position on template
@@ -373,7 +389,7 @@ export function generateRobloxShirtCanvas(skinImage: HTMLImageElement): HTMLCanv
 
   // ── Overlay layers (composited on top) ──
   // Body overlay (jacket)
-  mapBodyPart(ctx, skinData, MC_BODY_OVERLAY, ROBLOX_TORSO);
+  mapBodyPart(ctx, skinData, MC_BODY_OVERLAY, ROBLOX_TORSO, 'torso');
   // Right Arm overlay (right sleeve)
   mapBodyPart(ctx, skinData, rightArmOverlay, ROBLOX_RIGHT_LIMB);
   // Left Arm overlay (left sleeve)
@@ -403,7 +419,7 @@ export function generateRobloxPantsCanvas(skinImage: HTMLImageElement): HTMLCanv
 
   // ── Base layers ──
   // Torso (pants template includes torso for waist alignment)
-  mapBodyPart(ctx, skinData, MC_BODY, ROBLOX_TORSO);
+  mapBodyPart(ctx, skinData, MC_BODY, ROBLOX_TORSO, 'torso');
   // Right Leg → Right limb position on template
   mapBodyPart(ctx, skinData, MC_RIGHT_LEG, ROBLOX_RIGHT_LIMB);
   // Left Leg → Left limb position on template
@@ -411,7 +427,7 @@ export function generateRobloxPantsCanvas(skinImage: HTMLImageElement): HTMLCanv
 
   // ── Overlay layers (composited on top) ──
   // Body overlay (belt area)
-  mapBodyPart(ctx, skinData, MC_BODY_OVERLAY, ROBLOX_TORSO);
+  mapBodyPart(ctx, skinData, MC_BODY_OVERLAY, ROBLOX_TORSO, 'torso');
   // Right Leg overlay
   mapBodyPart(ctx, skinData, MC_RIGHT_LEG_OVERLAY, ROBLOX_RIGHT_LIMB);
   // Left Leg overlay
