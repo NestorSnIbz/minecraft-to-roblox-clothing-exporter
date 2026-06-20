@@ -97,6 +97,11 @@ export const translations: Record<Language, TranslationDictionary> = {
     err_invalid_image: "The file is not a valid image or is corrupted.",
     err_read_error: "An error occurred while reading the file.",
     err_generic: "An error occurred.",
+    
+    // Advertisements
+    ad_advertisement: "Advertisement",
+    ad_sponsor_title: "Premium Sponsor",
+    ad_sponsor_desc: "Support our free creator tools. Click here to sponsor us!",
   },
   es: {
     // Header
@@ -188,6 +193,11 @@ export const translations: Record<Language, TranslationDictionary> = {
     err_invalid_image: "El archivo no es una imagen válida o está dañado.",
     err_read_error: "Ocurrió un error al leer el archivo.",
     err_generic: "Ocurrió un error.",
+    
+    // Advertisements
+    ad_advertisement: "Publicidad",
+    ad_sponsor_title: "Patrocinador Premium",
+    ad_sponsor_desc: "Apoya nuestras herramientas gratuitas. ¡Haz clic para patrocinarnos!",
   }
 };
 

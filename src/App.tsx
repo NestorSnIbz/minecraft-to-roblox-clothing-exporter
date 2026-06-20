@@ -26,6 +26,7 @@ import {
 } from './modules/RobloxClothingExporter';
 import { buildRobloxAvatar } from './modules/RobloxAvatarBuilder';
 import { I18nProvider, useTranslation } from './modules/i18n';
+import AdColumn from './components/AdColumn';
 
 // Programmatic generator for a default Steve skin with a 3D Gold Crown Overlay
 function generateSteveSkin(): HTMLImageElement {
@@ -520,7 +521,9 @@ function AppContent() {
   const currentFaces = (activeTab === 'head' || activeTab === 'overlay') && extractedFaces ? extractedFaces[activeTab] : null;
 
   return (
-    <div className="app-container">
+    <div className="layout-wrapper">
+      <AdColumn position="left" />
+      <div className="app-container">
       {/* Sleek Header */}
       <header className="glass-panel app-header">
         <div className="logo-container" onClick={() => navigateToModule('dashboard')} style={{ cursor: 'pointer' }}>
@@ -1078,6 +1081,8 @@ function AppContent() {
           </div>
         </div>
       )}
+      </div>
+      <AdColumn position="right" />
     </div>
   );
 }

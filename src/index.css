@@ -551,3 +551,86 @@ input:checked + .checkbox-custom::after {
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4), 0 0 16px rgba(99, 102, 241, 0.1) !important;
 }
 
+/* Vertical Side Advertisements layout */
+.layout-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 24px;
+  width: 100%;
+  max-width: 1680px;
+  margin: 0 auto;
+  padding: 0 16px;
+  box-sizing: border-box;
+}
+
+.side-ad-column {
+  display: none; /* Hide on smaller screens */
+  flex-shrink: 0;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Show ads on desktop viewports wider than 1600px */
+@media (min-width: 1600px) {
+  .side-ad-column {
+    display: block;
+  }
+}
+
+/* Ad Inner Elements Styling */
+.ad-container-inner {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ad-container-inner:hover {
+  border-color: rgba(99, 102, 241, 0.25) !important;
+  box-shadow: 0 12px 40px 0 rgba(99, 102, 241, 0.1) !important;
+  transform: translateY(-2px);
+}
+
+.ad-close-btn:hover {
+  color: #ef4444 !important;
+  background-color: rgba(239, 68, 68, 0.1) !important;
+}
+
+.ad-sponsor-link:hover .ad-icon-container {
+  transform: scale(1.05);
+  border-color: rgba(99, 102, 241, 0.6) !important;
+}
+
+.ad-sponsor-link:hover .ad-icon-svg {
+  color: #a5b4fc !important;
+  filter: drop-shadow(0 0 8px rgba(129, 140, 248, 0.6));
+}
+
+.ad-sponsor-link:hover .ad-cta-badge {
+  background-color: rgba(99, 102, 241, 0.25) !important;
+  border-color: rgba(99, 102, 241, 0.4) !important;
+  color: #c7d2fe !important;
+  transform: scale(1.03);
+}
+
+.ad-icon-container {
+  transition: all 0.3s ease;
+}
+
+.ad-icon-svg {
+  transition: all 0.3s ease;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 8px rgba(99, 102, 241, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0);
+  }
+}
+
+
