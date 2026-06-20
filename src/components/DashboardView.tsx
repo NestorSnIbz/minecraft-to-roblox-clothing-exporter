@@ -24,6 +24,7 @@ interface DashboardViewProps {
 
 export default function DashboardView({ stats, navigateToModule }: DashboardViewProps) {
   const { t } = useTranslation();
+  const filteredActivity = stats.activity.filter(item => item.actionKey !== 'act_visit');
 
   return (
     <section className="dashboard-container" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '32px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
@@ -193,13 +194,13 @@ export default function DashboardView({ stats, navigateToModule }: DashboardView
           {t('dash_recent_activity')}
         </h3>
 
-        {stats.activity.length === 0 ? (
+        {filteredActivity.length === 0 ? (
           <p style={{ margin: 0, color: '#71717a', fontSize: '0.9rem', textAlign: 'center', padding: '24px 0' }}>
             {t('dash_no_activity')}
           </p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {stats.activity.map((item) => {
+            {filteredActivity.map((item) => {
               let badgeBg = 'rgba(99, 102, 241, 0.1)';
               let badgeText = '#818cf8';
               let iconStr = '⚡';

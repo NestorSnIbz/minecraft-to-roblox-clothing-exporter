@@ -203,17 +203,10 @@ function AppContent() {
   };
 
   const logToolVisit = (tool: 'head3d' | 'roblox') => {
-    const newActivity: ActivityItem = {
-      id: Math.random().toString(36).substring(2, 9),
-      actionKey: 'act_visit',
-      details: tool === 'head3d' ? t('module_3d_head') : t('module_roblox'),
-      timestamp: Date.now()
-    };
     saveStats({
       ...stats,
       headUsage: tool === 'head3d' ? stats.headUsage + 1 : stats.headUsage,
-      robloxUsage: tool === 'roblox' ? stats.robloxUsage + 1 : stats.robloxUsage,
-      activity: [newActivity, ...stats.activity].slice(0, 10)
+      robloxUsage: tool === 'roblox' ? stats.robloxUsage + 1 : stats.robloxUsage
     });
   };
 
