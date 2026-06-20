@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Sparkles } from 'lucide-react';
 import { useTranslation } from '../modules/i18n';
 
@@ -9,6 +9,20 @@ interface AdColumnProps {
 export default function AdColumn({ position }: AdColumnProps) {
   const { t } = useTranslation();
   const [visible, setVisible] = useState(true);
+  const [adBlocked, setAdBlocked] = useState(false);
+
+  useEffect(() => {
+    if (visible && !adBlocked) {
+      try {
+        // Attempt to push the ad block to Google AdSense array
+        const adsbygoogle = (window as any).adsbygoogle || [];
+        adsbygoogle.push({});
+      } catch (e) {
+        console.warn("AdSense script not loaded or ad blocked. Displaying fallback sponsor.", e);
+        setAdBlocked(true);
+      }
+    }
+  }, [visible, adBlocked]);
 
   if (!visible) return null;
 
@@ -78,90 +92,104 @@ export default function AdColumn({ position }: AdColumnProps) {
           </button>
         </div>
 
-        {/* Sponsor Content (Mock Ad) */}
-        <a 
-          href="https://github.com/NestorSnIbz/minecraft-to-roblox-clothing-exporter"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '12px',
-            textDecoration: 'none',
-            color: 'inherit',
-            flexGrow: 1,
-            justifyContent: 'center',
-            width: '100%',
-            textAlign: 'center',
-          }}
-          className="ad-sponsor-link"
-        >
-          {/* Logo or Icon */}
-          <div style={{
-            width: '64px',
-            height: '64px',
-            borderRadius: '16px',
-            background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(129, 140, 248, 0.2) 100%)',
-            border: '1px solid rgba(99, 102, 241, 0.3)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            position: 'relative',
-          }} className="ad-icon-container">
-            <Sparkles size={28} style={{ color: '#818cf8' }} className="ad-icon-svg" />
-            <div style={{
-              position: 'absolute',
+        {/* Real Ad unit or Fallback */}
+        {!adBlocked ? (
+          <div style={{ width: '100%', height: '480px', display: 'flex', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }}>
+            <ins 
+              className="adsbygoogle"
+              style={{ display: 'inline-block', width: '160px', height: '600px' }}
+              data-ad-client="ca-pub-XXXXXXXXXXXXXX" // REEMPLAZAR con tu ID de cliente real en producción
+              data-ad-slot={position === 'left' ? '1234567890' : '0987654321'} // REEMPLAZAR con tus IDs de bloques reales
+              data-ad-format="vertical"
+              data-full-width-responsive="false"
+            />
+          </div>
+        ) : (
+          /* Sponsor Content (Fallback Ad) */
+          <a 
+            href="https://github.com/NestorSnIbz/minecraft-to-roblox-clothing-exporter"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '12px',
+              textDecoration: 'none',
+              color: 'inherit',
+              flexGrow: 1,
+              justifyContent: 'center',
               width: '100%',
-              height: '100%',
+              textAlign: 'center',
+            }}
+            className="ad-sponsor-link"
+          >
+            {/* Logo or Icon */}
+            <div style={{
+              width: '64px',
+              height: '64px',
               borderRadius: '16px',
-              boxShadow: '0 0 15px rgba(99, 102, 241, 0.3)',
-              animation: 'pulse 2s infinite alternate',
-              pointerEvents: 'none',
-            }} />
-          </div>
+              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(129, 140, 248, 0.2) 100%)',
+              border: '1px solid rgba(99, 102, 241, 0.3)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              position: 'relative',
+            }} className="ad-icon-container">
+              <Sparkles size={28} style={{ color: '#818cf8' }} className="ad-icon-svg" />
+              <div style={{
+                position: 'absolute',
+                width: '100%',
+                height: '100%',
+                borderRadius: '16px',
+                boxShadow: '0 0 15px rgba(99, 102, 241, 0.3)',
+                animation: 'pulse 2s infinite alternate',
+                pointerEvents: 'none',
+              }} />
+            </div>
 
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '6px',
-          }}>
-            <h4 style={{
-              fontSize: '0.85rem',
-              fontWeight: 700,
-              margin: 0,
-              color: '#e4e4e7',
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
             }}>
-              {t('ad_sponsor_title')}
-            </h4>
-            <p style={{
-              fontSize: '0.72rem',
-              color: '#a1a1aa',
-              margin: 0,
-              lineHeight: '1.4',
-              padding: '0 4px',
-            }}>
-              {t('ad_sponsor_desc')}
-            </p>
-          </div>
+              <h4 style={{
+                fontSize: '0.85rem',
+                fontWeight: 700,
+                margin: 0,
+                color: '#e4e4e7',
+              }}>
+                {t('ad_sponsor_title')}
+              </h4>
+              <p style={{
+                fontSize: '0.72rem',
+                color: '#a1a1aa',
+                margin: 0,
+                lineHeight: '1.4',
+                padding: '0 4px',
+              }}>
+                {t('ad_sponsor_desc')}
+              </p>
+            </div>
 
-          {/* Call to action badge */}
-          <div className="badge ad-cta-badge" style={{
-            fontSize: '0.65rem',
-            padding: '4px 10px',
-            background: 'rgba(99, 102, 241, 0.1)',
-            borderColor: 'rgba(99, 102, 241, 0.2)',
-            color: '#a5b4fc',
-            marginTop: '8px',
-            fontWeight: 600,
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em',
-            borderRadius: '6px',
-            transition: 'all 0.2s ease',
-          }}>
-            GitHub Project
-          </div>
-        </a>
+            {/* Call to action badge */}
+            <div className="badge ad-cta-badge" style={{
+              fontSize: '0.65rem',
+              padding: '4px 10px',
+              background: 'rgba(99, 102, 241, 0.1)',
+              borderColor: 'rgba(99, 102, 241, 0.2)',
+              color: '#a5b4fc',
+              marginTop: '8px',
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              borderRadius: '6px',
+              transition: 'all 0.2s ease',
+            }}>
+              GitHub Project
+            </div>
+          </a>
+        )}
 
         {/* Footer info */}
         <div style={{
