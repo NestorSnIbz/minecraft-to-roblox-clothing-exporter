@@ -5,7 +5,8 @@
 
 export interface SkinValidationResult {
   isValid: boolean;
-  error?: string;
+  errorKey?: string;
+  errorParams?: Record<string, string | number>;
   image?: HTMLImageElement;
 }
 
@@ -22,7 +23,7 @@ export function validateAndLoadSkin(file: File): Promise<SkinValidationResult> {
     if (file.type !== 'image/png' && !file.name.toLowerCase().endsWith('.png')) {
       resolve({
         isValid: false,
-        error: 'El archivo debe ser un formato de imagen PNG.',
+        errorKey: 'err_not_png',
       });
       return;
     }
@@ -33,11 +34,12 @@ export function validateAndLoadSkin(file: File): Promise<SkinValidationResult> {
       const img = new Image();
       
       img.onload = () => {
-        // 2. Validate dimensions (Minecraft standard skins are 64x64 or 64x32, we enforce 64x64 as requested)
+        // 2. Validate dimensions
         if (img.width !== 64 || img.height !== 64) {
           resolve({
             isValid: false,
-            error: `La skin debe ser de resolución exacta 64x64 píxeles. (Detectado: ${img.width}x${img.height})`,
+            errorKey: 'err_invalid_resolution',
+            errorParams: { width: img.width, height: img.height },
           });
           return;
         }
@@ -51,7 +53,7 @@ export function validateAndLoadSkin(file: File): Promise<SkinValidationResult> {
       img.onerror = () => {
         resolve({
           isValid: false,
-          error: 'El archivo no es una imagen válida o está dañado.',
+          errorKey: 'err_invalid_image',
         });
       };
 
@@ -61,7 +63,7 @@ export function validateAndLoadSkin(file: File): Promise<SkinValidationResult> {
     reader.onerror = () => {
       resolve({
         isValid: false,
-        error: 'Ocurrió un error al leer el archivo.',
+        errorKey: 'err_read_error',
       });
     };
 

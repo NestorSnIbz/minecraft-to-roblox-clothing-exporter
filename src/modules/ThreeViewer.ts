@@ -118,6 +118,22 @@ export class ThreeViewer {
   }
 
   /**
+   * Sets the grid height dynamically.
+   */
+  public setGridY(y: number) {
+    this.gridHelper.position.y = y;
+  }
+
+  /**
+   * Resets the camera position and target controls.
+   */
+  public resetCamera(position: THREE.Vector3, target: THREE.Vector3) {
+    this.camera.position.copy(position);
+    this.controls.target.copy(target);
+    this.controls.update();
+  }
+
+  /**
    * Triggers a render frame manually.
    */
   public renderOnce() {
