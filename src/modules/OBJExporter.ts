@@ -22,7 +22,7 @@ function downloadTextFile(content: string, filename: string, mimeType: string) {
  * Expands (dilates) the borders of opaque pixels in the texture into the transparent regions.
  * This completely eliminates the black outline (alpha bleeding) caused by bilinear filtering in Roblox Studio.
  */
-function dilateTexture(imgData: ImageData): ImageData {
+export function dilateTexture(imgData: ImageData): ImageData {
   const width = imgData.width;
   const height = imgData.height;
   const data = imgData.data;
@@ -176,13 +176,21 @@ function mergeBufferGeometries(geometries: THREE.BufferGeometry[]): THREE.Buffer
   mergedGeom.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
   mergedGeom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
 
+  // Generate a sequential index array so the geometry is indexed
+  // This resolves corruption and import errors in strict FBX parsers (like Roblox Studio)
+  const indices = new Uint16Array(totalVertices);
+  for (let i = 0; i < totalVertices; i++) {
+    indices[i] = i;
+  }
+  mergedGeom.setIndex(new THREE.BufferAttribute(indices, 1));
+
   return mergedGeom;
 }
 
 /**
  * Builds the base head model (8x8x8) as a grid of individual quads to enable sharp color borders in Roblox.
  */
-function buildBaseHead(skinImage: HTMLImageElement): THREE.Group {
+export function buildBaseHead(skinImage: HTMLImageElement): THREE.Group {
   const group = new THREE.Group();
   group.name = 'HeadVoxelized';
 
@@ -328,7 +336,7 @@ function buildBaseHead(skinImage: HTMLImageElement): THREE.Group {
  * Builds a 3D group of flat planes representing only the non-transparent pixels in the skin's overlay layer.
  * Merges all planes into a single consolidated mesh named 'HeadOverlay' to preserve 3D relief in Roblox Studio.
  */
-function buildVoxelizedOverlay(skinImage: HTMLImageElement): THREE.Group {
+export function buildVoxelizedOverlay(skinImage: HTMLImageElement): THREE.Group {
   const group = new THREE.Group();
   group.name = 'HeadOverlayVoxelized';
 
