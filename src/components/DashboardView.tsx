@@ -22,12 +22,18 @@ interface DashboardViewProps {
   navigateToModule: (module: 'dashboard' | 'head3d' | 'roblox') => void;
 }
 
+const getBlockBar = (pct: number, length: number = 20) => {
+  const filledCount = Math.round((pct / 100) * length);
+  const emptyCount = Math.max(0, length - filledCount);
+  return '█'.repeat(filledCount) + '░'.repeat(emptyCount);
+};
+
 export default function DashboardView({ stats, navigateToModule }: DashboardViewProps) {
   const { t } = useTranslation();
   const filteredActivity = stats.activity.filter(item => item.actionKey !== 'act_visit');
 
   return (
-    <section className="dashboard-container" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '32px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
+    <section className="dashboard-container" style={{ display: 'flex', flexDirection: 'column', gap: '32px', width: '100%', boxSizing: 'border-box' }}>
       {/* Welcome Area */}
       <div className="glass-panel" style={{ padding: '32px', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '8px', background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(129, 140, 248, 0.05) 100%)', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
         <h2 style={{ fontSize: '1.75rem', fontWeight: 800, margin: 0, background: 'linear-gradient(135deg, #a5b4fc 0%, #818cf8 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
@@ -123,58 +129,67 @@ export default function DashboardView({ stats, navigateToModule }: DashboardView
         {/* Graphs / Charts Area */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px', marginTop: '12px' }}>
           {/* Distribution Chart (Workspace Usage) */}
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.03)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <h4 style={{ fontSize: '0.85rem', color: '#a1a1aa', margin: 0 }}>{t('dash_stat_favorite_tool')}</h4>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '140px' }}>
+          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.03)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <h4 className="voxel-caption" style={{ margin: 0 }}>{t('dash_stat_favorite_tool')}</h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', justifyContent: 'center', height: '140px', fontFamily: 'monospace', fontSize: '0.85rem' }}>
               {(() => {
                 const total = stats.headUsage + stats.robloxUsage;
-                const headPct = total > 0 ? Math.round((stats.headUsage / total) * 100) : 50;
-                const robloxPct = total > 0 ? Math.round((stats.robloxUsage / total) * 100) : 50;
-                const radius = 40;
-                const circ = 2 * Math.PI * radius;
-                const headStroke = (headPct / 100) * circ;
-                const robloxStroke = circ - headStroke;
+                const headPct = total > 0 ? Math.round((stats.headUsage / total) * 100) : 0;
+                const robloxPct = total > 0 ? Math.round((stats.robloxUsage / total) * 100) : 0;
+                
                 return (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                    <svg width="100" height="100" viewBox="0 0 100 100" style={{ transform: 'rotate(-90deg)' }}>
-                      <circle cx="50" cy="50" r={radius} fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="10" />
-                      <circle cx="50" cy="50" r={radius} fill="none" stroke="#6366f1" strokeWidth="10" strokeDasharray={`${headStroke} ${circ}`} strokeLinecap="round" />
-                      <circle cx="50" cy="50" r={radius} fill="none" stroke="#ef4444" strokeWidth="10" strokeDasharray={`${robloxStroke} ${circ}`} strokeDashoffset={-headStroke} strokeLinecap="round" />
-                    </svg>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ display: 'inline-block', width: '10px', height: '10px', background: '#6366f1', borderRadius: '50%' }}></span>
-                        <span style={{ fontSize: '0.8rem', color: '#a1a1aa' }}>{t('module_3d_head')}: <strong>{headPct}%</strong></span>
+                  <>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#f4f4f5' }}>
+                        <span>{t('module_3d_head')}</span>
+                        <span style={{ color: '#8b5cf6', fontWeight: 'bold' }}>{headPct}% ({stats.headUsage})</span>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ display: 'inline-block', width: '10px', height: '10px', background: '#ef4444', borderRadius: '50%' }}></span>
-                        <span style={{ fontSize: '0.8rem', color: '#a1a1aa' }}>{t('module_roblox')}: <strong>{robloxPct}%</strong></span>
+                      <div style={{ color: '#8b5cf6', letterSpacing: '2px', fontSize: '1rem', userSelect: 'none' }}>
+                        [{getBlockBar(headPct, 20)}]
                       </div>
                     </div>
-                  </div>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#f4f4f5' }}>
+                        <span>{t('module_roblox')}</span>
+                        <span style={{ color: '#ef4444', fontWeight: 'bold' }}>{robloxPct}% ({stats.robloxUsage})</span>
+                      </div>
+                      <div style={{ color: '#ef4444', letterSpacing: '2px', fontSize: '1rem', userSelect: 'none' }}>
+                        [{getBlockBar(robloxPct, 20)}]
+                      </div>
+                    </div>
+                  </>
                 );
               })()}
             </div>
           </div>
 
           {/* Format Popularity Bar Chart */}
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.03)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <h4 style={{ fontSize: '0.85rem', color: '#a1a1aa', margin: 0 }}>{t('dash_stat_favorite')}</h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', justifyContent: 'center', height: '140px' }}>
+          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.03)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <h4 className="voxel-caption" style={{ margin: 0 }}>{t('dash_stat_favorite')}</h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', justifyContent: 'center', height: '140px', fontFamily: 'monospace', fontSize: '0.8rem' }}>
               {(() => {
                 const formats = ['GLB', 'BBMODEL', 'Shirt', 'Pants'];
                 const maxVal = Math.max(...formats.map(f => stats.formats[f] || 0), 1);
+                const sum = formats.reduce((s, f) => s + (stats.formats[f] || 0), 0);
+                
+                if (sum === 0) {
+                  return <p style={{ color: '#71717a', textAlign: 'center', margin: 0 }}>NO DATA RECORDED</p>;
+                }
+                
                 return formats.map(f => {
                   const val = stats.formats[f] || 0;
-                  const pct = Math.max((val / maxVal) * 100, 2);
-                  const barColor = (f === 'Shirt' || f === 'Pants') ? '#ef4444' : '#6366f1';
+                  const pct = Math.round((val / maxVal) * 100);
+                  const color = (f === 'Shirt' || f === 'Pants') ? '#ef4444' : '#8b5cf6';
                   return (
-                    <div key={f} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <span style={{ width: '70px', fontSize: '0.8rem', textAlign: 'right', color: '#71717a' }}>{f}</span>
-                      <div style={{ flexGrow: 1, height: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '4px', overflow: 'hidden' }}>
-                        <div style={{ width: `${pct}%`, height: '100%', background: barColor, borderRadius: '4px', transition: 'width 0.5s ease' }}></div>
+                    <div key={f} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#f4f4f5' }}>
+                        <span>{f}</span>
+                        <span style={{ color, fontWeight: 'bold' }}>{val} units ({pct}%)</span>
                       </div>
-                      <span style={{ width: '25px', fontSize: '0.8rem', fontWeight: 600 }}>{val}</span>
+                      <div style={{ color, letterSpacing: '1px', userSelect: 'none' }}>
+                        [{getBlockBar(pct, 24)}]
+                      </div>
                     </div>
                   );
                 });
