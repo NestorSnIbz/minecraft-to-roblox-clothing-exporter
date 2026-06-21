@@ -25,8 +25,7 @@ interface FaceUVCoords {
 function setFaceUVs(
   uvAttribute: THREE.BufferAttribute,
   faceIndex: number,
-  coords: FaceUVCoords,
-  isOverlay: boolean
+  coords: FaceUVCoords
 ) {
   const textureSize = 64;
   
@@ -38,28 +37,18 @@ function setFaceUVs(
 
   const startIdx = faceIndex * 4;
   
-  if (faceIndex === 2 && !isOverlay) {
-    // Revert change for base layer top face: horizontally mirrored mapping
-    // Vertex 0 (Top-Left of face)
-    uvAttribute.setXY(startIdx, uMax, vMax);
-    // Vertex 1 (Top-Right of face)
-    uvAttribute.setXY(startIdx + 1, uMin, vMax);
-    // Vertex 2 (Bottom-Left of face)
-    uvAttribute.setXY(startIdx + 2, uMax, vMin);
-    // Vertex 3 (Bottom-Right of face)
-    uvAttribute.setXY(startIdx + 3, uMin, vMin);
-  } else if (faceIndex === 3) {
-    // Bottom face: vertically flipped AND horizontally mirrored to match standard Minecraft skin layout orientation
-    // Vertex 0 (Top-Left of face: bottom-left-front)
+  if (faceIndex === 2) {
+    // Top face: aligned to BBModel export [16, 8, 8, 0] / [48, 8, 40, 0]
+    // Vertex 0 (Top-Left of face: back-left)
     uvAttribute.setXY(startIdx, uMax, vMin);
-    // Vertex 1 (Top-Right of face: bottom-right-front)
+    // Vertex 1 (Top-Right of face: back-right)
     uvAttribute.setXY(startIdx + 1, uMin, vMin);
-    // Vertex 2 (Bottom-Left of face: bottom-left-back)
+    // Vertex 2 (Bottom-Left of face: front-left)
     uvAttribute.setXY(startIdx + 2, uMax, vMax);
-    // Vertex 3 (Bottom-Right of face: bottom-right-back)
+    // Vertex 3 (Bottom-Right of face: front-right)
     uvAttribute.setXY(startIdx + 3, uMin, vMax);
   } else {
-    // All other faces (including Top face of outer layer): standard mapping
+    // All other faces (including Bottom face index 3): standard mapping
     // Vertex 0 (Top-Left of face)
     uvAttribute.setXY(startIdx, uMin, vMax);
     // Vertex 1 (Top-Right of face)
@@ -92,7 +81,7 @@ export function applyHeadUVs(geometry: THREE.BoxGeometry, isOverlay: boolean) {
   };
 
   for (let faceIdx = 0; faceIdx < 6; faceIdx++) {
-    setFaceUVs(uvAttribute, faceIdx, faces[faceIdx], isOverlay);
+    setFaceUVs(uvAttribute, faceIdx, faces[faceIdx]);
   }
 
   // Mark the UV attribute as needing an update
