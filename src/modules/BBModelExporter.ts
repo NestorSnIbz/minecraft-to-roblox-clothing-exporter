@@ -98,8 +98,8 @@ export function exportToBBModel(skinImage: HTMLImageElement) {
           south: { uv: [24, 8, 32, 16], texture: 0 }, // Back
           west: { uv: [16, 8, 24, 16], texture: 0 },  // Right
           east: { uv: [0, 8, 8, 16], texture: 0 },    // Left
-          up: { uv: [16, 0, 8, 8], texture: 0 },      // Top
-          down: { uv: [24, 8, 16, 0], texture: 0 },  // Bottom
+          up: { uv: [8, 0, 16, 8], texture: 0 },      // Top
+          down: { uv: [16, 0, 24, 8], texture: 0 },  // Bottom
         },
       },
       // 2. Head Overlay Cube (Hat Layer, Native Editable Cube, inflated by 0.5 units on all sides)
@@ -119,8 +119,8 @@ export function exportToBBModel(skinImage: HTMLImageElement) {
           south: { uv: [56, 8, 64, 16], texture: 0 }, // Back
           west: { uv: [48, 8, 56, 16], texture: 0 },  // Right
           east: { uv: [32, 8, 40, 16], texture: 0 },  // Left
-          up: { uv: [48, 0, 40, 8], texture: 0 },      // Top
-          down: { uv: [56, 8, 48, 0], texture: 0 },  // Bottom
+          up: { uv: [40, 0, 48, 8], texture: 0 },      // Top
+          down: { uv: [48, 0, 56, 8], texture: 0 },  // Bottom
         },
       },
     ],

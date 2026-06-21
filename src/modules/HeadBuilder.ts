@@ -37,27 +37,18 @@ function setFaceUVs(
 
   const startIdx = faceIndex * 4;
   
-  if (faceIndex === 2) {
-    // Top face: horizontally mirrored in default BoxGeometry, so swap uMin and uMax
-    // Vertex 0 (Top-Left of face)
+  if (faceIndex === 3) {
+    // Bottom face: horizontally flipped (swap uMin and uMax) to match standard Minecraft skin layout orientation
+    // Vertex 0 (Top-Left of face: bottom-left-front)
     uvAttribute.setXY(startIdx, uMax, vMax);
-    // Vertex 1 (Top-Right of face)
+    // Vertex 1 (Top-Right of face: bottom-right-front)
     uvAttribute.setXY(startIdx + 1, uMin, vMax);
-    // Vertex 2 (Bottom-Left of face)
+    // Vertex 2 (Bottom-Left of face: bottom-left-back)
     uvAttribute.setXY(startIdx + 2, uMax, vMin);
-    // Vertex 3 (Bottom-Right of face)
+    // Vertex 3 (Bottom-Right of face: bottom-right-back)
     uvAttribute.setXY(startIdx + 3, uMin, vMin);
-  } else if (faceIndex === 3) {
-    // Bottom face: vertically flipped AND horizontally mirrored, so swap uMin/uMax and vMin/vMax
-    // Vertex 0 (Top-Left of face)
-    uvAttribute.setXY(startIdx, uMax, vMin);
-    // Vertex 1 (Top-Right of face)
-    uvAttribute.setXY(startIdx + 1, uMin, vMin);
-    // Vertex 2 (Bottom-Left of face)
-    uvAttribute.setXY(startIdx + 2, uMax, vMax);
-    // Vertex 3 (Bottom-Right of face)
-    uvAttribute.setXY(startIdx + 3, uMin, vMax);
   } else {
+    // All other faces (including Top face 2): standard mapping
     // Vertex 0 (Top-Left of face)
     uvAttribute.setXY(startIdx, uMin, vMax);
     // Vertex 1 (Top-Right of face)
