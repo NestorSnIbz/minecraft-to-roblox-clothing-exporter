@@ -98,7 +98,7 @@ export function exportToBBModel(skinImage: HTMLImageElement) {
           south: { uv: [24, 8, 32, 16], texture: 0 }, // Back
           west: { uv: [16, 8, 24, 16], texture: 0 },  // Right
           east: { uv: [0, 8, 8, 16], texture: 0 },    // Left
-          up: { uv: [16, 0, 8, 8], texture: 0 },      // Top
+          up: { uv: [16, 8, 8, 0], texture: 0 },      // Top
           down: { uv: [16, 0, 24, 8], texture: 0 },  // Bottom
         },
       },
@@ -119,7 +119,7 @@ export function exportToBBModel(skinImage: HTMLImageElement) {
           south: { uv: [56, 8, 64, 16], texture: 0 }, // Back
           west: { uv: [48, 8, 56, 16], texture: 0 },  // Right
           east: { uv: [32, 8, 40, 16], texture: 0 },  // Left
-          up: { uv: [40, 0, 48, 8], texture: 0 },      // Top
+          up: { uv: [48, 8, 40, 0], texture: 0 },      // Top
           down: { uv: [48, 0, 56, 8], texture: 0 },  // Bottom
         },
       },
