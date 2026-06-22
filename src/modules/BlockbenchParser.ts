@@ -70,12 +70,14 @@ function assignFaceUVs(
   texHeight: number,
   rotation: number
 ) {
-  // Normalize UV coords (0.0 to 1.0)
-  // Invert V because UV space starts bottom-left while Blockbench starts top-left
-  const uMin = u1 / texWidth;
-  const uMax = u2 / texWidth;
-  const vMin = 1.0 - (v2 / texHeight);
-  const vMax = 1.0 - (v1 / texHeight);
+  // Apply a tiny half-pixel inset margin (0.02 pixels) to pull UV coordinates slightly inward.
+  // This completely eliminates Bilinear Bleeding / Alpha Bleeding (dark lines and blurry transitions at the borders).
+  const margin = 0.02;
+  
+  const uMin = (u1 < u2 ? u1 + margin : u1 - margin) / texWidth;
+  const uMax = (u1 < u2 ? u2 - margin : u2 + margin) / texWidth;
+  const vMin = 1.0 - ((v1 < v2 ? v2 - margin : v2 + margin) / texHeight);
+  const vMax = 1.0 - ((v1 < v2 ? v1 + margin : v1 - margin) / texHeight);
 
   // Default Three.js vertex order for a face: TL, TR, BL, BR
   const points = [
