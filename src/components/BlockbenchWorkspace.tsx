@@ -63,7 +63,7 @@ export default function BlockbenchWorkspace({ showToast, logExport }: Blockbench
       viewerRef.current.autoRotate = autoRotate;
       viewerRef.current.setGridVisible(showGrid);
       if (model) {
-        viewerRef.current.setHeadModel(model.group);
+        viewerRef.current.setHeadModel(model.group, true);
         
         // Auto position grid helper to just below the bottom of the bounding box
         const bbox = new THREE.Box3().setFromObject(model.group);
@@ -312,7 +312,7 @@ export default function BlockbenchWorkspace({ showToast, logExport }: Blockbench
       </section>
 
       {/* Right Panel: Viewport and Action Buttons */}
-      <section className="glass-panel viewer-panel">
+      <section className="glass-panel viewer-panel" style={{ minHeight: '680px' }}>
         <div className="viewer-canvas-container" style={{ position: 'relative', width: '100%', height: '100%' }}>
           {/* Dedicated canvas container managed by Three.js */}
           <div ref={containerRef} style={{ width: '100%', height: '100%' }} />

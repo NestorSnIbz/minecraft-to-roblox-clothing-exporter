@@ -25,7 +25,17 @@ Convert your Minecraft skin's head into a 3D blocky model with layered volume su
   * **OBJ:** Export as a wave-front `.obj` file along with its `.mtl` material file and `textura.png`.
   * **FBX:** Export as a `.fbx` model file with embedded materials.
 
-### 3. Roblox Classic Clothing Converter (`roblox`)
+### 3. Blockbench (.bbmodel) Converter Workspace (`blockbench`)
+Convert your custom Blockbench `.bbmodel` 3D model files into OBJ and FBX formats directly in your browser.
+* **Interactive 3D Viewer:** Includes a full 3D viewport canvas (680px tall) with OrbitControls, toggleable grid (expanded to 100 units), auto-rotation, and dynamic shadow rendering.
+* **Pixel-Perfect Auto-Framing (Auto-Zoom):** Automatically calculates the model's 3D bounding box size and centers/zooms the camera to fit any model scale on load.
+* **Dynamic Fog Scaling:** Features a smooth linear fog effect whose parameters scale dynamically with your camera distance, ensuring large models remain fully visible when zoomed out.
+* **Sharp Pixel Art Remapping (Voxelization):** Divides cube geometries into flat-shaded pixel quads and collapses their UV coordinates to pixel centers, eliminating GPU bilinear texture bleeding and wrong-color lines.
+* **Transparency Cutout Support:** Analyzes the texture's alpha channel on import and physically skips generating polygons for transparent pixels, ensuring transparent parts (e.g. hair overlays, clothing items) render correctly in game engines like Roblox Studio.
+* **Texture Dilation & Nearest-Neighbor Scaling:** Upscales textures to 1024x1024 and applies border dilation (preserving alpha channels) to eliminate black alpha outline seams at geometry boundaries.
+* **Element Outliner Filters:** Automatically filters out hidden elements and helper locators/cameras during parsing.
+
+### 4. Roblox Classic Clothing Converter (`roblox`)
 Convert the torso, arms, and legs of your Minecraft skin into official Roblox Classic clothing templates (585x559 px).
 * **Arm Type Selector (Steve vs. Alex):** Automatically detects if the skin format is Classic (4px arms) or Slim (3px arms), and provides manual toggle buttons to easily correct any auto-detection mistakes in real-time.
 * **3D Roblox Avatar Preview (R6 Dummy):** Full-body interactive 3D viewer that applies the generated shirt (`shirt.png`) and pants (`pants.png`) textures onto a Roblox R6 rig. Includes orbital camera controls and a quick-reset button to return to the frontal camera view.
@@ -34,12 +44,12 @@ Convert the torso, arms, and legs of your Minecraft skin into official Roblox Cl
 * **Pixel-Perfect Scaling:** Employs nearest-neighbor scaling to maintain the sharpness of the original pixel art on both templates and 3D viewers.
 * **Quick Downloads:** Single-click buttons to download templates individually or both sequentially.
 
-### 4. Multilingual Support (i18n)
+### 5. Multilingual Support (i18n)
 * **Automatic Detection:** Automatically detects your browser's language, setting English (`en`, default) or Spanish (`es`) accordingly.
 * **Dynamic Language Switcher:** A header selector allows you to translate the entire UI in real-time without reloading the page.
 * **Preferences Storage:** Remembers your language preference across browser sessions.
 
-### 5. Responsive Ad Banners
+### 6. Responsive Ad Banners
 * **Sponsor Banner Columns (160x600 px):** Integrates "Wide Skyscraper" sponsor panels on the sides of the viewport, styled to match the frosted glass aesthetic of the app.
 * **Non-Intrusive Design:** Sidebar banners hide automatically using CSS media queries (`@media`) on screen widths below `1600px` to maximize space for 3D viewports on laptops and mobile devices.
 * **Session-Dismissible:** Banners feature a close button to permanently hide them during your session.

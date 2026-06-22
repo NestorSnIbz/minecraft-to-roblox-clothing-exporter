@@ -30,7 +30,7 @@ export class ThreeViewer {
     // 1. Create Scene with premium dark background
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0c0c0e);
-    this.scene.fog = new THREE.FogExp2(0x0c0c0e, 0.015);
+    this.scene.fog = new THREE.Fog(0x0c0c0e, 30, 80);
 
     // 2. Create Camera
     this.camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
@@ -75,7 +75,7 @@ export class ThreeViewer {
     this.scene.add(fillLight);
 
     // 6. Add Grid Helper for spatial context
-    this.gridHelper = new THREE.GridHelper(40, 40, 0x4f46e5, 0x27272a); // Indigo and dark gray grid
+    this.gridHelper = new THREE.GridHelper(100, 100, 0x4f46e5, 0x27272a); // Indigo and dark gray grid
     this.gridHelper.position.y = -5; // position below the head
     this.scene.add(this.gridHelper);
 
@@ -96,7 +96,7 @@ export class ThreeViewer {
   /**
    * Set or update the 3D Head model in the scene.
    */
-  public setHeadModel(newHeadGroup: THREE.Group) {
+  public setHeadModel(newHeadGroup: THREE.Group, autoFrame = false) {
     if (this.headGroup === newHeadGroup) {
       return;
     }
@@ -111,8 +111,48 @@ export class ThreeViewer {
     this.headGroup.position.set(0, 0, 0);
     this.scene.add(this.headGroup);
 
-    // Auto-focus camera target on the model
-    this.controls.target.set(0, 0, 0);
+    if (autoFrame) {
+      // Calculate bounding box of the group
+      const box = new THREE.Box3().setFromObject(newHeadGroup);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const center = new THREE.Vector3();
+      box.getCenter(center);
+
+      // Get the maximum dimension of the bounding box
+      const maxDim = Math.max(size.x, size.y, size.z) || 1;
+      
+      // Camera fov in radians
+      const fov = this.camera.fov * (Math.PI / 180);
+      
+      // Calculate the distance required to fit the object
+      let cameraDistance = maxDim / (2 * Math.tan(fov / 2));
+      
+      // Add padding factor (1.5) so it doesn't touch the viewport edges
+      cameraDistance *= 1.5;
+      
+      // Position camera at a clean angled perspective relative to the center
+      const direction = new THREE.Vector3(1.0, 0.8, 1.2).normalize();
+      const newCameraPosition = center.clone().add(direction.multiplyScalar(cameraDistance));
+
+      // Update camera position and controls target
+      this.camera.position.copy(newCameraPosition);
+      this.controls.target.copy(center);
+      
+      // Adjust controls zoom limits dynamically
+      this.controls.minDistance = Math.max(1, maxDim * 0.1);
+      this.controls.maxDistance = Math.max(100, cameraDistance * 4);
+
+      // Adjust fog limits dynamically based on model scale to prevent the model from disappearing when zooming out
+      if (this.scene.fog instanceof THREE.Fog) {
+        this.scene.fog.near = cameraDistance * 0.5;
+        this.scene.fog.far = cameraDistance * 4.0;
+      }
+    } else {
+      // Auto-focus camera target on the model
+      this.controls.target.set(0, 0, 0);
+    }
+
     this.controls.update();
   }
 
