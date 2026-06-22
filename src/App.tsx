@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate, Outlet } from 'react-router-dom';
 import { Box, CheckCircle, AlertTriangle } from 'lucide-react';
 import { validateAndLoadSkin } from './modules/SkinParser';
 import { extractFaces, type ExtractedFaces } from './modules/TextureExtractor';
@@ -8,6 +8,7 @@ import AdColumn from './components/AdColumn';
 import DashboardView from './components/DashboardView';
 import LoadingSkeleton from './components/LoadingSkeleton';
 import ErrorBoundary from './components/ErrorBoundary';
+import type { RouteRecord } from 'vite-react-ssg';
 
 // Lazy-load heavy workspaces and pages
 const Head3DWorkspace = lazy(() => import('./components/Head3DWorkspace'));
@@ -115,32 +116,44 @@ function generateSteveSkin(): HTMLImageElement {
   return img;
 }
 
-export default function App() {
+export function AppLayout() {
   return (
     <I18nProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<AppContent activeTab="dashboard" />} />
-          <Route path="/dashboard" element={<AppContent activeTab="dashboard" />} />
-          <Route path="/head3d" element={<AppContent activeTab="head3d" />} />
-          <Route path="/roblox" element={<AppContent activeTab="roblox" />} />
-          <Route path="/blockbench" element={<AppContent activeTab="blockbench" />} />
-          <Route path="/share/roblox/:slug" element={
-            <Suspense fallback={<LoadingSkeleton />}>
-              <ShareRobloxPage />
-            </Suspense>
-          } />
-          <Route path="/share/head3d/:slug" element={
-            <Suspense fallback={<LoadingSkeleton />}>
-              <ShareHead3dPage />
-            </Suspense>
-          } />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </BrowserRouter>
+      <Outlet />
     </I18nProvider>
   );
 }
+
+export const routes: RouteRecord[] = [
+  {
+    path: '/',
+    element: <AppLayout />,
+    children: [
+      { path: '', element: <AppContent activeTab="dashboard" /> },
+      { path: 'dashboard', element: <AppContent activeTab="dashboard" /> },
+      { path: 'head3d', element: <AppContent activeTab="head3d" /> },
+      { path: 'roblox', element: <AppContent activeTab="roblox" /> },
+      { path: 'blockbench', element: <AppContent activeTab="blockbench" /> },
+      {
+        path: 'share/roblox/:slug',
+        element: (
+          <Suspense fallback={<LoadingSkeleton />}>
+            <ShareRobloxPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: 'share/head3d/:slug',
+        element: (
+          <Suspense fallback={<LoadingSkeleton />}>
+            <ShareHead3dPage />
+          </Suspense>
+        ),
+      },
+      { path: '*', element: <Navigate to="/" replace /> },
+    ],
+  },
+];
 
 function AppContent({ activeTab }: { activeTab: 'dashboard' | 'head3d' | 'roblox' | 'blockbench' }) {
   const { t, language, setLanguage } = useTranslation();
@@ -175,15 +188,17 @@ function AppContent({ activeTab }: { activeTab: 'dashboard' | 'head3d' | 'roblox
   }
 
   const [stats, setStats] = useState<AppStats>(() => {
-    const saved = localStorage.getItem('app_stats');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (typeof parsed.conversions === 'number' && Array.isArray(parsed.activity)) {
-          return parsed;
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('app_stats');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (typeof parsed.conversions === 'number' && Array.isArray(parsed.activity)) {
+            return parsed;
+          }
+        } catch (e) {
+          // Fallback
         }
-      } catch (e) {
-        // Fallback
       }
     }
     return {
@@ -198,7 +213,9 @@ function AppContent({ activeTab }: { activeTab: 'dashboard' | 'head3d' | 'roblox
 
   const saveStats = (newStats: AppStats) => {
     setStats(newStats);
-    localStorage.setItem('app_stats', JSON.stringify(newStats));
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('app_stats', JSON.stringify(newStats));
+    }
   };
 
   const logConversion = (skinName: string) => {

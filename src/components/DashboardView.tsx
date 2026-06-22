@@ -3,6 +3,7 @@ import { Box, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTranslation } from '../modules/i18n';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { Head } from 'vite-react-ssg';
 
 interface ActivityItem {
   id: string;
@@ -99,6 +100,13 @@ export default function DashboardView({ stats, navigateToModule }: DashboardView
 
   return (
     <section className="dashboard-container" style={{ display: 'flex', flexDirection: 'column', gap: '32px', width: '100%', boxSizing: 'border-box' }}>
+      <Head>
+        <title>SkinBridge | Minecraft Skin to Roblox Converter &amp; 3D Head Exporter</title>
+        <meta name="description" content="Convert Minecraft skins to 3D blocky models and Roblox clothing templates in real-time. Export bbmodel to OBJ/FBX and view your skins dynamically." />
+        <meta property="og:title" content="SkinBridge | Minecraft Skin to Roblox Converter" />
+        <meta property="og:description" content="Convert Minecraft skins to 3D blocky models and Roblox clothing templates in real-time." />
+        <link rel="canonical" href="https://minecraft-to-roblox-clothing-export.vercel.app/" />
+      </Head>
       {/* Welcome Area */}
       <div className="glass-panel" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '8px', background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(129, 140, 248, 0.05) 100%)' }}>
         <h2 style={{ fontSize: '1.75rem', fontWeight: 800, margin: 0, background: 'linear-gradient(135deg, #a5b4fc 0%, #818cf8 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>

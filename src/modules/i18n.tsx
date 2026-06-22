@@ -367,13 +367,15 @@ const I18nContext = createContext<I18nContextType | undefined>(undefined);
 
 export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguageState] = useState<Language>(() => {
-    // 1. Check localStorage
-    const saved = localStorage.getItem('app_lang') as Language;
-    if (saved === 'en' || saved === 'es') return saved;
-    
-    // 2. Detect browser language
-    const browserLang = navigator.language.split('-')[0];
-    if (browserLang === 'es') return 'es';
+    if (typeof window !== 'undefined') {
+      // 1. Check localStorage
+      const saved = localStorage.getItem('app_lang') as Language;
+      if (saved === 'en' || saved === 'es') return saved;
+      
+      // 2. Detect browser language
+      const browserLang = navigator.language?.split('-')[0];
+      if (browserLang === 'es') return 'es';
+    }
     
     // 3. Fallback to English
     return 'en';
@@ -381,7 +383,9 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);
-    localStorage.setItem('app_lang', lang);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('app_lang', lang);
+    }
   };
 
   const t = (key: string, params?: Record<string, string | number>): string => {

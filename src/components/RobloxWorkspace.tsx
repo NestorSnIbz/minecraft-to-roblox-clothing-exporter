@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { Upload, RotateCw, Grid, Download } from 'lucide-react';
 import { useTranslation } from '../modules/i18n';
+import { Head } from 'vite-react-ssg';
 import { ThreeViewer } from '../modules/ThreeViewer';
 import { buildRobloxAvatar } from '../modules/RobloxAvatarBuilder';
 import { 
@@ -266,6 +267,13 @@ export default function RobloxWorkspace({
 
   return (
     <main className="main-grid">
+      <Head>
+        <title>Minecraft Skin to Roblox Shirt Converter | Classic Clothing Template</title>
+        <meta name="description" content="Convert Minecraft skins to Roblox clothing templates online. Generate classic Roblox shirts and pants with an interactive 3D R6 dummy preview." />
+        <meta property="og:title" content="Minecraft Skin to Roblox Shirt Converter" />
+        <meta property="og:description" content="Convert Minecraft skins to classic Roblox shirt and pants templates online." />
+        <link rel="canonical" href="https://minecraft-to-roblox-clothing-export.vercel.app/roblox" />
+      </Head>
       {/* Left Side: Uploading and 2D Previews */}
       <section className="glass-panel sidebar-panel">
         <div>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Upload, RotateCw, Grid, Download } from 'lucide-react';
 import { useTranslation } from '../modules/i18n';
+import { Head } from 'vite-react-ssg';
 import { build3DHead } from '../modules/HeadBuilder';
 import { ThreeViewer } from '../modules/ThreeViewer';
 import { exportToGLB } from '../modules/GLBExporter';
@@ -244,6 +245,13 @@ export default function Head3DWorkspace({
 
   return (
     <main className="main-grid">
+      <Head>
+        <title>Minecraft Skin 3D Head Viewer &amp; Exporter | SkinBridge</title>
+        <meta name="description" content="View your Minecraft skin in a 3D interactive head viewer. Export your Minecraft head model to GLB, OBJ, FBX, and Blockbench format instantly." />
+        <meta property="og:title" content="Minecraft Skin 3D Head Viewer &amp; Exporter" />
+        <meta property="og:description" content="View your Minecraft skin in 3D and export it to GLB, OBJ, FBX, or Blockbench." />
+        <link rel="canonical" href="https://minecraft-to-roblox-clothing-export.vercel.app/head3d" />
+      </Head>
       {/* Left Side: Uploading and 2D Previews */}
       <section className="glass-panel sidebar-panel">
         <div>
