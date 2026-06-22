@@ -15,6 +15,7 @@ export const translations: Record<Language, TranslationDictionary> = {
     module_3d_head: "3D Head Model",
     module_roblox: "Roblox Clothing Templates",
     nav_blockbench: "Blockbench Converter",
+    nav_gallery: "Gallery",
     
     // Blockbench Converter
     dash_blockbench_title: "Blockbench Model Converter",
@@ -189,6 +190,7 @@ export const translations: Record<Language, TranslationDictionary> = {
     module_3d_head: "Modelo Cabeza 3D",
     module_roblox: "Plantillas Ropa Roblox",
     nav_blockbench: "Convertidor Blockbench",
+    nav_gallery: "Galería",
     
     // Blockbench Converter
     dash_blockbench_title: "Convertidor de Modelos Blockbench",

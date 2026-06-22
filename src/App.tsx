@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { Navigate, useNavigate, Outlet } from 'react-router-dom';
-import { Box, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Box, CheckCircle, AlertTriangle, LayoutGrid } from 'lucide-react';
 import { validateAndLoadSkin } from './modules/SkinParser';
 import { extractFaces, type ExtractedFaces } from './modules/TextureExtractor';
 import { I18nProvider, useTranslation } from './modules/i18n';
@@ -16,6 +16,7 @@ const RobloxWorkspace = lazy(() => import('./components/RobloxWorkspace'));
 const BlockbenchWorkspace = lazy(() => import('./components/BlockbenchWorkspace'));
 const ShareRobloxPage = lazy(() => import('./pages/ShareRobloxPage'));
 const ShareHead3dPage = lazy(() => import('./pages/ShareHead3dPage'));
+const GalleryPage = lazy(() => import('./pages/GalleryPage'));
 
 // Programmatic generator for a default Steve skin with a 3D Gold Crown Overlay
 function generateSteveSkin(): HTMLImageElement {
@@ -134,6 +135,14 @@ export const routes: RouteRecord[] = [
       { path: 'head3d', element: <AppContent activeTab="head3d" /> },
       { path: 'roblox', element: <AppContent activeTab="roblox" /> },
       { path: 'blockbench', element: <AppContent activeTab="blockbench" /> },
+      {
+        path: 'gallery',
+        element: (
+          <Suspense fallback={<LoadingSkeleton />}>
+            <GalleryPage />
+          </Suspense>
+        ),
+      },
       {
         path: 'share/roblox/:slug',
         element: (
@@ -392,6 +401,14 @@ function AppContent({ activeTab }: { activeTab: 'dashboard' | 'head3d' | 'roblox
               onClick={() => navigateToModule('blockbench')}
             >
               {t('nav_blockbench')}
+            </button>
+            <button 
+              className="nav-btn"
+              onClick={() => navigate('/gallery')}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <LayoutGrid size={16} />
+              {t('nav_gallery')}
             </button>
           </nav>
 
