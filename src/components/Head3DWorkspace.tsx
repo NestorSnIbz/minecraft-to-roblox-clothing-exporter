@@ -247,9 +247,9 @@ export default function Head3DWorkspace({
     <main className="main-grid">
       <Head>
         <title>Minecraft Skin 3D Head Viewer &amp; Exporter | SkinBridge</title>
-        <meta name="description" content="View your Minecraft skin in a 3D interactive head viewer. Export your Minecraft head model to GLB, OBJ, FBX, and Blockbench format instantly." />
+        <meta name="description" content="View your Minecraft skin as an interactive 3D head model. Export all 6 face textures (top, bottom, left, right, front, back) from your skin online." />
         <meta property="og:title" content="Minecraft Skin 3D Head Viewer &amp; Exporter" />
-        <meta property="og:description" content="View your Minecraft skin in 3D and export it to GLB, OBJ, FBX, or Blockbench." />
+        <meta property="og:description" content="View your Minecraft skin as an interactive 3D head model and export all face textures online." />
         <link rel="canonical" href="https://minecraft-to-roblox-clothing-export.vercel.app/head3d" />
       </Head>
       {/* Left Side: Uploading and 2D Previews */}
