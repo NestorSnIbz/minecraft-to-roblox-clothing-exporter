@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Box, CheckCircle, AlertTriangle } from 'lucide-react';
 import { validateAndLoadSkin } from './modules/SkinParser';
 import { extractFaces, type ExtractedFaces } from './modules/TextureExtractor';
@@ -7,9 +8,11 @@ import AdColumn from './components/AdColumn';
 import DashboardView from './components/DashboardView';
 import LoadingSkeleton from './components/LoadingSkeleton';
 
-// Lazy-load heavy workspaces
+// Lazy-load heavy workspaces and pages
 const Head3DWorkspace = lazy(() => import('./components/Head3DWorkspace'));
 const RobloxWorkspace = lazy(() => import('./components/RobloxWorkspace'));
+const ShareRobloxPage = lazy(() => import('./pages/ShareRobloxPage'));
+const ShareHead3dPage = lazy(() => import('./pages/ShareHead3dPage'));
 
 // Programmatic generator for a default Steve skin with a 3D Gold Crown Overlay
 function generateSteveSkin(): HTMLImageElement {
@@ -113,18 +116,42 @@ function generateSteveSkin(): HTMLImageElement {
 export default function App() {
   return (
     <I18nProvider>
-      <AppContent />
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<AppContent activeTab="dashboard" />} />
+          <Route path="/dashboard" element={<AppContent activeTab="dashboard" />} />
+          <Route path="/head3d" element={<AppContent activeTab="head3d" />} />
+          <Route path="/roblox" element={<AppContent activeTab="roblox" />} />
+          <Route path="/share/roblox/:slug" element={
+            <Suspense fallback={<LoadingSkeleton />}>
+              <ShareRobloxPage />
+            </Suspense>
+          } />
+          <Route path="/share/head3d/:slug" element={
+            <Suspense fallback={<LoadingSkeleton />}>
+              <ShareHead3dPage />
+            </Suspense>
+          } />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
     </I18nProvider>
   );
 }
 
-function AppContent() {
+function AppContent({ activeTab }: { activeTab: 'dashboard' | 'head3d' | 'roblox' }) {
   const { t, language, setLanguage } = useTranslation();
+  const navigate = useNavigate();
   const [skinImage, setSkinImage] = useState<HTMLImageElement | null>(null);
   const [skinSrc, setSkinSrc] = useState<string>('');
   const [extractedFaces, setExtractedFaces] = useState<ExtractedFaces | null>(null);
   const [dragActive, setDragActive] = useState(false);
-  const [activeModule, setActiveModule] = useState<'dashboard' | 'head3d' | 'roblox'>('dashboard');
+  const [activeModule, setActiveModule] = useState<'dashboard' | 'head3d' | 'roblox'>(activeTab);
+
+  useEffect(() => {
+    setActiveModule(activeTab);
+  }, [activeTab]);
+
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Statistics & Dashboard State
@@ -211,7 +238,7 @@ function AppContent() {
   };
 
   const navigateToModule = (module: 'dashboard' | 'head3d' | 'roblox') => {
-    setActiveModule(module);
+    navigate(`/${module}`);
     if (module === 'head3d' || module === 'roblox') {
       logToolVisit(module);
     }
@@ -226,14 +253,39 @@ function AppContent() {
     }, 4500);
   };
 
-  // 1. Generate default Steve crown skin on mount
+  // 1. Generate default Steve crown skin on mount (or load from URL if provided)
   useEffect(() => {
-    const defaultSteve = generateSteveSkin();
-    defaultSteve.onload = () => {
-      setSkinImage(defaultSteve);
-      setSkinSrc(defaultSteve.src);
-      setExtractedFaces(extractFaces(defaultSteve));
-    };
+    const params = new URLSearchParams(window.location.search);
+    const urlParam = params.get('skinUrl');
+
+    if (urlParam) {
+      const loadSharedSkin = async () => {
+        try {
+          const res = await fetch(urlParam);
+          const blob = await res.blob();
+          const file = new File([blob], 'shared_skin.png', { type: 'image/png' });
+          await handleFile(file);
+          
+          // Clear query params so we don't reload it on every mount
+          window.history.replaceState({}, document.title, window.location.pathname);
+        } catch (e) {
+          console.error('Failed to pre-load shared skin:', e);
+          loadDefaultSteve();
+        }
+      };
+      loadSharedSkin();
+    } else {
+      loadDefaultSteve();
+    }
+
+    function loadDefaultSteve() {
+      const defaultSteve = generateSteveSkin();
+      defaultSteve.onload = () => {
+        setSkinImage(defaultSteve);
+        setSkinSrc(defaultSteve.src);
+        setExtractedFaces(extractFaces(defaultSteve));
+      };
+    }
   }, []);
 
   // File uploading logic

@@ -8,6 +8,7 @@ import { exportToBBModel } from '../modules/BBModelExporter';
 import { exportToOBJ } from '../modules/OBJExporter';
 import { exportToFBX } from '../modules/FBXExporter';
 import { type ExtractedFaces } from '../modules/TextureExtractor';
+import { useShareHead3d } from '../hooks/useShareHead3d';
 
 interface Head3DWorkspaceProps {
   skinImage: HTMLImageElement | null;
@@ -40,6 +41,146 @@ export default function Head3DWorkspace({
   const [activeTab, setActiveTab] = useState<'head' | 'overlay'>('head');
   const [showGrid, setShowGrid] = useState(true);
   const [autoRotate, setAutoRotate] = useState(false);
+
+  const { share: shareHead3d } = useShareHead3d();
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  // Anti-bot & Form States
+  const [creatorName, setCreatorName] = useState('');
+  const [description, setDescription] = useState('');
+  const [puzzleA, setPuzzleA] = useState(0);
+  const [puzzleB, setPuzzleB] = useState(0);
+  const [puzzleAnswer, setPuzzleAnswer] = useState('');
+  const [captchaError, setCaptchaError] = useState(false);
+  const [cooldownTime, setCooldownTime] = useState(0);
+
+  // Check cooldown on modal open
+  useEffect(() => {
+    if (showShareModal) {
+      const lastShare = localStorage.getItem('last_share_time_head3d');
+      if (lastShare) {
+        const elapsed = Math.floor((Date.now() - parseInt(lastShare, 10)) / 1000);
+        if (elapsed < 60) {
+          setCooldownTime(60 - elapsed);
+        } else {
+          setCooldownTime(0);
+        }
+      }
+    }
+  }, [showShareModal]);
+
+  // Cooldown countdown timer
+  useEffect(() => {
+    if (cooldownTime > 0) {
+      const timer = setInterval(() => {
+        setCooldownTime((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [cooldownTime]);
+
+  const generatePuzzle = () => {
+    setPuzzleA(Math.floor(Math.random() * 8) + 2); // 2 to 9
+    setPuzzleB(Math.floor(Math.random() * 8) + 2); // 2 to 9
+    setPuzzleAnswer('');
+  };
+
+  const handleShareClick = () => {
+    const lastShare = localStorage.getItem('last_share_time_head3d');
+    if (lastShare) {
+      const elapsed = Math.floor((Date.now() - parseInt(lastShare, 10)) / 1000);
+      if (elapsed < 60) {
+        setCooldownTime(60 - elapsed);
+      }
+    }
+    setShowShareModal(true);
+    setShareUrl(null);
+    setShareError(null);
+    setShareLoading(false);
+    setCreatorName('');
+    setDescription('');
+    setCaptchaError(false);
+    generatePuzzle();
+  };
+
+  const handleConfirmShare = async () => {
+    const expected = puzzleA + puzzleB;
+    if (parseInt(puzzleAnswer, 10) !== expected) {
+      setCaptchaError(true);
+      generatePuzzle();
+      return;
+    }
+    setCaptchaError(false);
+
+    setShareLoading(true);
+    setShareError(null);
+    try {
+      let previewCanvas: HTMLCanvasElement | null = null;
+      if (viewerRef.current) {
+        viewerRef.current.renderOnce();
+        previewCanvas = viewerRef.current.getCanvas();
+      }
+      const url = await shareHead3d(
+        previewCanvas,
+        skinSrc,
+        extractedFaces,
+        creatorName,
+        description
+      );
+      setShareUrl(url);
+
+      // Save last share time for cooldown
+      localStorage.setItem('last_share_time_head3d', Date.now().toString());
+      setCooldownTime(60);
+
+      // Save to shared history in localStorage
+      const historyStr = localStorage.getItem('shared_history') || '[]';
+      const history = JSON.parse(historyStr);
+      
+      let previewUrl = '';
+      if (previewCanvas) {
+        previewUrl = previewCanvas.toDataURL('image/png');
+      }
+
+      const slugFromUrl = url.split('/').pop() || '';
+
+      const newHistoryItem = {
+        slug: slugFromUrl,
+        type: 'head3d',
+        creatorName: creatorName.trim() || 'Anonymous',
+        description: description.trim() || '',
+        previewUrl: previewUrl,
+        createdAt: Date.now(),
+        skinUrl: skinSrc
+      };
+
+      localStorage.setItem('shared_history', JSON.stringify([newHistoryItem, ...history]));
+      window.dispatchEvent(new Event('storage'));
+
+    } catch (err: any) {
+      setShareError(err.message || 'Error occurred while sharing');
+    } finally {
+      setShareLoading(false);
+    }
+  };
+
+  const handleCopyLink = () => {
+    if (shareUrl) {
+      navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<ThreeViewer | null>(null);
@@ -272,9 +413,222 @@ export default function Head3DWorkspace({
             <button className="glow-btn" onClick={handleExportBBModel}>
               <Download size={18} /> BBMODEL
             </button>
+            {skinImage && (
+              <button className="glow-btn-secondary" onClick={handleShareClick} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="18" cy="5" r="3" />
+                  <circle cx="6" cy="12" r="3" />
+                  <circle cx="18" cy="19" r="3" />
+                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                </svg>
+                {t('btn_share_workspace')}
+              </button>
+            )}
           </div>
         </div>
       </section>
+
+      {showShareModal && (
+        <div className="modal-overlay" style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+        }}>
+          <div className="glass-panel" style={{
+            padding: '28px',
+            maxWidth: '450px',
+            width: '90%',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '20px',
+            border: '2px solid rgba(255, 255, 255, 0.05)',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.5)'
+          }}>
+            <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#f3f4f6' }}>
+              {t('share_title')}
+            </h3>
+            <p style={{ margin: 0, fontSize: '0.9rem', color: '#9ca3af', lineHeight: '1.5' }}>
+              {t('share_desc')}
+            </p>
+            <div style={{
+              fontSize: '0.8rem',
+              color: '#fca5a5',
+              backgroundColor: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid rgba(239, 68, 68, 0.15)',
+              padding: '10px 12px',
+              borderRadius: '8px',
+              lineHeight: '1.4'
+            }}>
+              ⚠️ {t('share_disclaimer')}
+            </div>
+
+            {shareLoading ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', padding: '20px 0' }}>
+                <div style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '50%',
+                  border: '3px solid rgba(129, 140, 248, 0.2)',
+                  borderTopColor: '#818cf8',
+                  animation: 'spin 1s linear infinite'
+                }}></div>
+                <span style={{ fontSize: '0.85rem', color: '#a1a1aa' }}>{t('share_uploading')}</span>
+              </div>
+            ) : shareError ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ padding: '12px', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#f87171', fontSize: '0.85rem' }}>
+                  {shareError}
+                </div>
+                <button className="glow-btn-secondary" style={{ padding: '10px' }} onClick={() => setShowShareModal(false)}>
+                  {t('btn_close')}
+                </button>
+              </div>
+            ) : shareUrl ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'flex', gap: '8px', background: 'rgba(255,255,255,0.03)', padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <input
+                    type="text"
+                    readOnly
+                    value={shareUrl}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#e5e7eb',
+                      fontSize: '0.85rem',
+                      width: '100%',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button className="glow-btn" style={{ flex: 1, padding: '10px' }} onClick={handleCopyLink}>
+                    {copied ? t('share_copied') : t('share_copy_link')}
+                  </button>
+                  <button className="glow-btn-secondary" style={{ padding: '10px' }} onClick={() => setShowShareModal(false)}>
+                    {t('btn_close')}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {!shareLoading && !shareUrl && !shareError && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* Creator Name */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#a1a1aa' }}>
+                    {t('share_lbl_name')}
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={32}
+                    value={creatorName}
+                    onChange={(e) => setCreatorName(e.target.value)}
+                    placeholder={t('share_ph_name')}
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.03)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      borderRadius: '6px',
+                      padding: '8px 12px',
+                      color: '#f3f4f6',
+                      fontSize: '0.9rem',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+
+                {/* Description */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#a1a1aa' }}>
+                    {t('share_lbl_desc')}
+                  </label>
+                  <textarea
+                    maxLength={200}
+                    rows={3}
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder={t('share_ph_desc')}
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.03)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      borderRadius: '6px',
+                      padding: '8px 12px',
+                      color: '#f3f4f6',
+                      fontSize: '0.9rem',
+                      outline: 'none',
+                      resize: 'none'
+                    }}
+                  />
+                </div>
+
+                {/* Math Puzzle (Human Check) */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', background: 'rgba(99, 102, 241, 0.05)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(99, 102, 241, 0.1)' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#a5b4fc', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline' }}>
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
+                    {t('share_lbl_puzzle')}
+                  </label>
+                  <span style={{ fontSize: '0.85rem', color: '#d1d5db', margin: '4px 0' }}>
+                    {t('share_puzzle_solve').replace('{a}', puzzleA.toString()).replace('{b}', puzzleB.toString())}
+                  </span>
+                  <input
+                    type="number"
+                    value={puzzleAnswer}
+                    onChange={(e) => setPuzzleAnswer(e.target.value)}
+                    placeholder={t('share_puzzle_ph')}
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.03)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      borderRadius: '6px',
+                      padding: '8px 12px',
+                      color: '#f3f4f6',
+                      fontSize: '0.9rem',
+                      outline: 'none'
+                    }}
+                  />
+                  {captchaError && (
+                    <span style={{ fontSize: '0.8rem', color: '#f87171', fontWeight: 600, marginTop: '4px' }}>
+                      {t('share_err_puzzle')}
+                    </span>
+                  )}
+                </div>
+
+                {/* Cooldown Alert */}
+                {cooldownTime > 0 && (
+                  <div style={{ padding: '8px 12px', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: '6px', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#f87171', fontSize: '0.8rem', textAlign: 'center' }}>
+                    {t('share_cooldown').replace('{seconds}', cooldownTime.toString())}
+                  </div>
+                )}
+
+                {/* Confirm/Cancel Buttons */}
+                <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                  <button 
+                    className="glow-btn" 
+                    style={{ flex: 1, padding: '10px' }} 
+                    onClick={handleConfirmShare}
+                    disabled={cooldownTime > 0 || !puzzleAnswer}
+                  >
+                    {t('share_btn_confirm')}
+                  </button>
+                  <button className="glow-btn-secondary" style={{ flex: 1, padding: '10px' }} onClick={() => setShowShareModal(false)}>
+                    {t('btn_cancel')}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }

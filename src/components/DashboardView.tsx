@@ -1,5 +1,8 @@
-import { Box } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Box, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTranslation } from '../modules/i18n';
+import { useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 
 interface ActivityItem {
   id: string;
@@ -30,7 +33,69 @@ const getBlockBar = (pct: number, length: number = 20) => {
 
 export default function DashboardView({ stats, navigateToModule }: DashboardViewProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const filteredActivity = stats.activity.filter(item => item.actionKey !== 'act_visit');
+
+  const [history, setHistory] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
+
+  const ITEMS_PER_PAGE = 10;
+
+  const fetchSharedHistory = async (page: number) => {
+    setLoadingHistory(true);
+    setHistoryError(null);
+    try {
+      const start = (page - 1) * ITEMS_PER_PAGE;
+      const end = start + ITEMS_PER_PAGE - 1;
+      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+      const { data, error: fetchErr, count } = await supabase
+        .from('shares_all')
+        .select('*', { count: 'exact' })
+        .gte('created_at', oneWeekAgo)
+        .order('created_at', { ascending: false })
+        .range(start, end);
+
+      if (fetchErr) throw fetchErr;
+
+      const mapped = (data || []).map((row: any) => ({
+        slug: row.slug,
+        type: row.type,
+        creatorName: row.creator_name || 'Anonymous',
+        description: row.description,
+        previewUrl: row.preview_url,
+        skinUrl: row.skin_url,
+        createdAt: row.created_at
+      }));
+
+      setHistory(mapped);
+      setTotalCount(count || 0);
+    } catch (err: any) {
+      console.error('Error fetching shared history:', err);
+      setHistoryError(err.message || 'Failed to load shared history');
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSharedHistory(currentPage);
+  }, [currentPage]);
+
+  const handleCopyLink = (type: string, slug: string) => {
+    const url = `${window.location.origin}/share/${type}/${slug}`;
+    navigator.clipboard.writeText(url);
+    setCopiedSlug(slug);
+    setTimeout(() => setCopiedSlug(null), 2000);
+  };
+
+  const handleLoadSkin = (type: 'roblox' | 'head3d', skinUrl: string) => {
+    navigate(`/${type}?skinUrl=${encodeURIComponent(skinUrl)}`);
+  };
 
   return (
     <section className="dashboard-container" style={{ display: 'flex', flexDirection: 'column', gap: '32px', width: '100%', boxSizing: 'border-box' }}>
@@ -249,6 +314,168 @@ export default function DashboardView({ stats, navigateToModule }: DashboardView
               );
             })}
           </div>
+        )}
+      </div>
+
+      {/* Shared Conversions History */}
+      <div className="glass-panel" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+          <h3 style={{ fontSize: '1.2rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <svg viewBox="0 0 24 24" width="20" height="20" stroke="#818cf8" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+              <polyline points="16 6 12 2 8 6" />
+              <line x1="12" y1="2" x2="12" y2="15" />
+            </svg>
+            {t('dash_shared_history')}
+          </h3>
+          <button 
+            className="glow-btn-secondary" 
+            onClick={() => fetchSharedHistory(currentPage)}
+            disabled={loadingHistory}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', fontSize: '0.8rem' }}
+          >
+            <RefreshCw size={14} style={{ animation: loadingHistory ? 'spin 1.5s linear infinite' : 'none' }} />
+            {t('dash_btn_refresh')}
+          </button>
+        </div>
+
+        {loadingHistory ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 0', gap: '12px' }}>
+            <div style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '50%',
+              border: '3px solid rgba(129, 140, 248, 0.2)',
+              borderTopColor: '#818cf8',
+              animation: 'spin 1s linear infinite'
+            }}></div>
+            <p style={{ margin: 0, color: '#a1a1aa', fontSize: '0.9rem' }}>{t('dash_loading_shared')}</p>
+          </div>
+        ) : historyError ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '30px 0', gap: '12px', color: '#f87171' }}>
+            <p style={{ margin: 0, fontSize: '0.9rem' }}>{t('dash_error_shared').replace('{error}', historyError)}</p>
+            <button className="glow-btn-secondary" style={{ padding: '8px 16px' }} onClick={() => fetchSharedHistory(currentPage)}>
+              {t('dash_btn_refresh')}
+            </button>
+          </div>
+        ) : history.length === 0 ? (
+          <p style={{ margin: 0, color: '#71717a', fontSize: '0.9rem', textAlign: 'center', padding: '24px 0' }}>
+            {t('dash_no_shared')}
+          </p>
+        ) : (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+              {history.map((item) => (
+                <div 
+                  key={item.slug} 
+                  className="glass-panel" 
+                  style={{ 
+                    padding: '16px', 
+                    display: 'flex', 
+                    gap: '12px', 
+                    background: 'rgba(255, 255, 255, 0.01)', 
+                    border: '1px solid rgba(255, 255, 255, 0.05)',
+                    borderRadius: '8px',
+                    alignItems: 'center'
+                  }}
+                >
+                  {/* 3D Preview Thumbnail */}
+                  <div style={{ 
+                    width: '64px', 
+                    height: '64px', 
+                    borderRadius: '6px', 
+                    background: '#0c0c0e', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    overflow: 'hidden', 
+                    border: '1px solid rgba(255,255,255,0.05)',
+                    flexShrink: 0
+                  }}>
+                    {item.previewUrl ? (
+                      <img 
+                        src={item.previewUrl} 
+                        alt="Thumbnail" 
+                        style={{ width: '100%', height: '100%', objectFit: 'contain', imageRendering: 'pixelated' }} 
+                      />
+                    ) : (
+                      <Box size={24} style={{ color: '#52525b' }} />
+                    )}
+                  </div>
+
+                  {/* Details */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flexGrow: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', justifyItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      <span className="badge" style={{ fontSize: '0.65rem', padding: '2px 6px', background: item.type === 'roblox' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(99, 102, 241, 0.15)', color: item.type === 'roblox' ? '#f87171' : '#818cf8' }}>
+                        {item.type === 'roblox' ? 'Roblox' : '3D Head'}
+                      </span>
+                    </div>
+                    <h4 style={{ margin: '4px 0 0 0', fontSize: '0.9rem', fontWeight: 700, color: '#f3f4f6', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {item.creatorName}
+                    </h4>
+                    <p style={{ margin: 0, fontSize: '0.8rem', color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {item.description || 'No description'}
+                    </p>
+                    
+                    {/* Actions */}
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                      <a 
+                        href={`/share/${item.type}/${item.slug}`} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        style={{ color: '#818cf8', textDecoration: 'none', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
+                      >
+                        {t('dash_btn_view')}
+                      </a>
+                      <button 
+                        onClick={() => handleCopyLink(item.type, item.slug)}
+                        style={{ background: 'transparent', border: 'none', padding: 0, color: '#34d399', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', outline: 'none' }}
+                      >
+                        {copiedSlug === item.slug ? t('share_copied') : t('dash_btn_copy')}
+                      </button>
+                      {item.skinUrl && (
+                        <button 
+                          onClick={() => handleLoadSkin(item.type, item.skinUrl)}
+                          style={{ background: 'transparent', border: 'none', padding: 0, color: '#fbbf24', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', outline: 'none' }}
+                        >
+                          {t('dash_btn_load')}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Pagination Controls */}
+            {totalCount > ITEMS_PER_PAGE && (
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '16px', marginTop: '24px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px' }}>
+                <button 
+                  className="glow-btn-secondary" 
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px', fontSize: '0.8rem' }}
+                >
+                  <ChevronLeft size={14} />
+                  {t('dash_pagination_prev')}
+                </button>
+                <span style={{ fontSize: '0.8rem', color: '#a1a1aa', fontWeight: 600 }}>
+                  {t('dash_pagination_page')
+                    .replace('{current}', currentPage.toString())
+                    .replace('{total}', Math.ceil(totalCount / ITEMS_PER_PAGE).toString())}
+                </span>
+                <button 
+                  className="glow-btn-secondary" 
+                  disabled={currentPage >= Math.ceil(totalCount / ITEMS_PER_PAGE)}
+                  onClick={() => setCurrentPage(prev => prev + 1)}
+                  style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px', fontSize: '0.8rem' }}
+                >
+                  {t('dash_pagination_next')}
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </section>

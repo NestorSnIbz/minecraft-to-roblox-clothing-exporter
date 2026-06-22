@@ -87,6 +87,13 @@ export class ThreeViewer {
   }
 
   /**
+   * Get the WebGL renderer DOM element (canvas) to take screenshots.
+   */
+  public getCanvas(): HTMLCanvasElement {
+    return this.renderer.domElement;
+  }
+
+  /**
    * Set or update the 3D Head model in the scene.
    */
   public setHeadModel(newHeadGroup: THREE.Group) {
