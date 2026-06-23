@@ -119,3 +119,89 @@ select cron.schedule(
     delete from shares_head3d where created_at < now() - interval '7 days';
   $$
 );
+
+-- 7. Analytics: Global Application Analytics & Usage Trends
+create table if not exists app_analytics (
+  id text primary key,
+  conversions integer default 0,
+  exports integer default 0,
+  head_usage integer default 0,
+  roblox_usage integer default 0,
+  blockbench_usage integer default 0,
+  formats jsonb default '{"GLB": 0, "BBMODEL": 0, "Shirt": 0, "Pants": 0, "OBJ": 0, "FBX": 0}'::jsonb,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+alter table app_analytics enable row level security;
+
+create policy "Permitir lectura publica en app_analytics" 
+  on app_analytics for select 
+  using (true);
+
+create policy "Permitir insercion publica en app_analytics" 
+  on app_analytics for insert 
+  with check (true);
+
+create policy "Permitir update publico en app_analytics" 
+  on app_analytics for update 
+  using (true);
+
+
+create table if not exists app_activity (
+  id text primary key,
+  action_key text not null,
+  details text not null,
+  timestamp bigint not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+alter table app_activity enable row level security;
+
+create policy "Permitir lectura publica en app_activity" 
+  on app_activity for select 
+  using (true);
+
+create policy "Permitir insercion publica en app_activity" 
+  on app_activity for insert 
+  with check (true);
+
+
+-- RPC function to increment global analytics atomically
+create or replace function increment_analytics(
+  col_name text,
+  format_name text default null
+) returns void as $$
+begin
+  -- Initialize global row if it doesn't exist
+  insert into app_analytics (id, conversions, exports, head_usage, roblox_usage, blockbench_usage, formats)
+  values ('global', 0, 0, 0, 0, 0, '{"GLB": 0, "BBMODEL": 0, "Shirt": 0, "Pants": 0, "OBJ": 0, "FBX": 0}'::jsonb)
+  on conflict (id) do nothing;
+
+  if col_name = 'conversions' then
+    update app_analytics set conversions = conversions + 1 where id = 'global';
+  elsif col_name = 'exports' then
+    update app_analytics set exports = exports + 1 where id = 'global';
+  elsif col_name = 'head_usage' then
+    update app_analytics set head_usage = head_usage + 1 where id = 'global';
+  elsif col_name = 'roblox_usage' then
+    update app_analytics set roblox_usage = roblox_usage + 1 where id = 'global';
+  elsif col_name = 'blockbench_usage' then
+    update app_analytics set blockbench_usage = blockbench_usage + 1 where id = 'global';
+  end if;
+
+  if format_name is not null then
+    update app_analytics 
+    set formats = jsonb_set(
+      formats, 
+      array[format_name], 
+      to_jsonb(coalesce((formats->>format_name)::int, 0) + 1)
+    )
+    where id = 'global';
+  end if;
+end;
+$$ language plpgsql;
+
+-- Grant execute permissions to public/anonymous roles for the RPC function
+grant execute on function increment_analytics(text, text) to anon;
+grant execute on function increment_analytics(text, text) to authenticated;
+

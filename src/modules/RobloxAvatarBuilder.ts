@@ -107,6 +107,7 @@ export function buildRobloxAvatar(skinImage: HTMLImageElement | HTMLCanvasElemen
   const torsoMeshShirt = new THREE.Mesh(torsoGeomShirt, torsoMaterialsShirt);
   torsoMeshShirt.position.set(0, 1, 0);
   torsoMeshShirt.userData = { meshName: 'torso', isPants: false };
+  torsoMeshShirt.userData.baseY = torsoMeshShirt.position.y;
   group.add(torsoMeshShirt);
 
   // Outer Layer: Torso Pants (very slightly larger to avoid z-fighting)
@@ -115,6 +116,7 @@ export function buildRobloxAvatar(skinImage: HTMLImageElement | HTMLCanvasElemen
   const torsoMeshPants = new THREE.Mesh(torsoGeomPants, torsoMaterialsPants);
   torsoMeshPants.position.set(0, 1, 0);
   torsoMeshPants.userData = { meshName: 'torso', isPants: true };
+  torsoMeshPants.userData.baseY = torsoMeshPants.position.y;
   group.add(torsoMeshPants);
 
   // ── Right Arm (Shirt) ──
@@ -155,6 +157,7 @@ export function buildRobloxAvatar(skinImage: HTMLImageElement | HTMLCanvasElemen
   const headMesh = new THREE.Mesh(headGeom, headMaterials);
   headMesh.position.set(0, 2.6, 0);
   headMesh.userData = { meshName: 'head' };
+  headMesh.userData.baseY = headMesh.position.y;
   group.add(headMesh);
 
   // Roblox Classic Head Stud
@@ -163,6 +166,7 @@ export function buildRobloxAvatar(skinImage: HTMLImageElement | HTMLCanvasElemen
   const studMesh = new THREE.Mesh(studGeom, studMaterial);
   studMesh.position.set(0, 3.25, 0);
   studMesh.userData = { meshName: 'head' };
+  studMesh.userData.baseY = studMesh.position.y;
   group.add(studMesh);
 
   return group;

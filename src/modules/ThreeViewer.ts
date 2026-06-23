@@ -18,6 +18,17 @@ export class ThreeViewer {
   public autoRotate = false;
   public showGrid = true;
 
+  // Animation properties
+  private _animationMode: 'none' | 'idle' | 'walk' = 'none';
+  public get animationMode(): 'none' | 'idle' | 'walk' {
+    return this._animationMode;
+  }
+  public set animationMode(value: 'none' | 'idle' | 'walk') {
+    this.resetPose();
+    this._animationMode = value;
+  }
+  private animationTime = 0;
+
   constructor(container: HTMLDivElement) {
     this.container = container;
     this.init();
@@ -221,8 +232,100 @@ export class ThreeViewer {
       this.headGroup.rotation.y += 0.005;
     }
 
+    if (this.headGroup && this.animationMode !== 'none') {
+      this.animationTime += 0.016; // ~60fps delta
+      const t = this.animationTime;
+
+      // Encuentra las partes por meshName (guardando arrays para evitar sobreescritura de torso y head)
+      const parts: Record<string, THREE.Object3D[]> = {};
+      this.headGroup.traverse((child) => {
+        if (child.userData?.meshName) {
+          if (!parts[child.userData.meshName]) {
+            parts[child.userData.meshName] = [];
+          }
+          parts[child.userData.meshName].push(child);
+        }
+      });
+
+      if (this.animationMode === 'idle') {
+        // Breathing: torso sube y baja suavemente
+        if (parts.torso) {
+          parts.torso.forEach((mesh) => {
+            mesh.position.y = (mesh.userData.baseY ?? 0) + Math.sin(t * 1.2) * 0.04;
+          });
+        }
+        // Head bob suave
+        if (parts.head) {
+          parts.head.forEach((mesh) => {
+            mesh.position.y = (mesh.userData.baseY ?? 2.6) + Math.sin(t * 1.2) * 0.04;
+          });
+        }
+        // Arms swing suave
+        if (parts.rightArm) {
+          parts.rightArm.forEach((mesh) => {
+            mesh.rotation.x = Math.sin(t * 1.2) * 0.08;
+          });
+        }
+        if (parts.leftArm) {
+          parts.leftArm.forEach((mesh) => {
+            mesh.rotation.x = -Math.sin(t * 1.2) * 0.08;
+          });
+        }
+      }
+
+      if (this.animationMode === 'walk') {
+        const speed = 2.5;
+        // Legs alternados
+        if (parts.rightLeg) {
+          parts.rightLeg.forEach((mesh) => {
+            mesh.rotation.x = Math.sin(t * speed) * 0.6;
+          });
+        }
+        if (parts.leftLeg) {
+          parts.leftLeg.forEach((mesh) => {
+            mesh.rotation.x = -Math.sin(t * speed) * 0.6;
+          });
+        }
+        // Arms opuestos a las piernas
+        if (parts.rightArm) {
+          parts.rightArm.forEach((mesh) => {
+            mesh.rotation.x = -Math.sin(t * speed) * 0.5;
+          });
+        }
+        if (parts.leftArm) {
+          parts.leftArm.forEach((mesh) => {
+            mesh.rotation.x = Math.sin(t * speed) * 0.5;
+          });
+        }
+        // Head y torso bob ligero
+        if (parts.head) {
+          parts.head.forEach((mesh) => {
+            mesh.position.y = (mesh.userData.baseY ?? 2.6) + Math.abs(Math.sin(t * speed * 2)) * 0.05;
+          });
+        }
+        if (parts.torso) {
+          parts.torso.forEach((mesh) => {
+            mesh.position.y = (mesh.userData.baseY ?? 0) + Math.abs(Math.sin(t * speed * 2)) * 0.03;
+          });
+        }
+      }
+    }
+
     this.renderer.render(this.scene, this.camera);
   };
+
+  public resetPose() {
+    if (!this.headGroup) return;
+    this.headGroup.traverse((child) => {
+      if (child instanceof THREE.Object3D && child.userData?.meshName) {
+        child.rotation.set(0, 0, 0);
+        if (child.userData.baseY !== undefined) {
+          (child as any).position.y = child.userData.baseY;
+        }
+      }
+    });
+    this.animationTime = 0;
+  }
 
   /**
    * Window Resize Handler

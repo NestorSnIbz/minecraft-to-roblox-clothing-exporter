@@ -4,6 +4,7 @@ import { Box, CheckCircle, AlertTriangle, LayoutGrid } from 'lucide-react';
 import { validateAndLoadSkin } from './modules/SkinParser';
 import { extractFaces, type ExtractedFaces } from './modules/TextureExtractor';
 import { I18nProvider, useTranslation } from './modules/i18n';
+import { supabase } from './lib/supabase';
 import DashboardView from './components/DashboardView';
 import LoadingSkeleton from './components/LoadingSkeleton';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -228,6 +229,57 @@ function AppContent({ activeTab }: { activeTab: 'dashboard' | 'head3d' | 'roblox
     }
   };
 
+  // Sync / Load global stats from Supabase on mount
+  useEffect(() => {
+    const fetchGlobalStats = async () => {
+      try {
+        const { data: analyticsData, error: analyticsErr } = await supabase
+          .from('app_analytics')
+          .select('*')
+          .eq('id', 'global')
+          .single();
+
+        if (analyticsErr) {
+          console.warn('Could not fetch global analytics from Supabase, using local fallback:', analyticsErr.message);
+          return;
+        }
+
+        const { data: activityData, error: activityErr } = await supabase
+          .from('app_activity')
+          .select('*')
+          .order('timestamp', { ascending: false })
+          .limit(10);
+
+        if (activityErr) {
+          console.warn('Could not fetch global activity feed from Supabase, using local fallback:', activityErr.message);
+          return;
+        }
+
+        const mergedStats: AppStats = {
+          conversions: analyticsData.conversions ?? 0,
+          exports: analyticsData.exports ?? 0,
+          headUsage: analyticsData.head_usage ?? 0,
+          robloxUsage: analyticsData.roblox_usage ?? 0,
+          blockbenchUsage: analyticsData.blockbench_usage ?? 0,
+          formats: analyticsData.formats ?? { GLB: 0, BBMODEL: 0, Shirt: 0, Pants: 0, OBJ: 0, FBX: 0 },
+          activity: (activityData || []).map((act: any) => ({
+            id: act.id,
+            actionKey: act.action_key,
+            details: act.details,
+            timestamp: Number(act.timestamp)
+          }))
+        };
+
+        setStats(mergedStats);
+        localStorage.setItem('app_stats', JSON.stringify(mergedStats));
+      } catch (err) {
+        console.error('Error fetching global stats from Supabase:', err);
+      }
+    };
+
+    fetchGlobalStats();
+  }, []);
+
   const logConversion = (skinName: string) => {
     const newActivity: ActivityItem = {
       id: Math.random().toString(36).substring(2, 9),
@@ -235,11 +287,23 @@ function AppContent({ activeTab }: { activeTab: 'dashboard' | 'head3d' | 'roblox
       details: skinName,
       timestamp: Date.now()
     };
-    saveStats({
+    const newStats = {
       ...stats,
       conversions: stats.conversions + 1,
       activity: [newActivity, ...stats.activity].slice(0, 10)
-    });
+    };
+    saveStats(newStats);
+
+    // Sync to database, fail silently if tables don't exist yet
+    supabase.rpc('increment_analytics', { col_name: 'conversions' })
+      .then(({ error }) => {
+        if (error) console.warn('Supabase increment_analytics rpc error:', error.message);
+      });
+    supabase.from('app_activity')
+      .insert({ id: newActivity.id, action_key: newActivity.actionKey, details: newActivity.details, timestamp: newActivity.timestamp })
+      .then(({ error }) => {
+        if (error) console.warn('Supabase app_activity insert error:', error.message);
+      });
   };
 
   const logExport = (format: string, filename: string) => {
@@ -251,21 +315,41 @@ function AppContent({ activeTab }: { activeTab: 'dashboard' | 'head3d' | 'roblox
     };
     const updatedFormats = { ...stats.formats };
     updatedFormats[format] = (updatedFormats[format] || 0) + 1;
-    saveStats({
+    const newStats = {
       ...stats,
       exports: stats.exports + 1,
       formats: updatedFormats,
       activity: [newActivity, ...stats.activity].slice(0, 10)
-    });
+    };
+    saveStats(newStats);
+
+    // Sync to database, fail silently if tables don't exist yet
+    supabase.rpc('increment_analytics', { col_name: 'exports', format_name: format })
+      .then(({ error }) => {
+        if (error) console.warn('Supabase increment_analytics rpc error:', error.message);
+      });
+    supabase.from('app_activity')
+      .insert({ id: newActivity.id, action_key: newActivity.actionKey, details: newActivity.details, timestamp: newActivity.timestamp })
+      .then(({ error }) => {
+        if (error) console.warn('Supabase app_activity insert error:', error.message);
+      });
   };
 
   const logToolVisit = (tool: 'head3d' | 'roblox' | 'blockbench') => {
-    saveStats({
+    const colName = tool === 'head3d' ? 'head_usage' : tool === 'roblox' ? 'roblox_usage' : 'blockbench_usage';
+    const newStats = {
       ...stats,
       headUsage: tool === 'head3d' ? stats.headUsage + 1 : stats.headUsage,
       robloxUsage: tool === 'roblox' ? stats.robloxUsage + 1 : stats.robloxUsage,
       blockbenchUsage: tool === 'blockbench' ? (stats.blockbenchUsage || 0) + 1 : (stats.blockbenchUsage || 0)
-    });
+    };
+    saveStats(newStats);
+
+    // Sync to database, fail silently if tables don't exist yet
+    supabase.rpc('increment_analytics', { col_name: colName })
+      .then(({ error }) => {
+        if (error) console.warn('Supabase increment_analytics rpc error:', error.message);
+      });
   };
 
   const navigateToModule = (module: 'dashboard' | 'head3d' | 'roblox' | 'blockbench') => {

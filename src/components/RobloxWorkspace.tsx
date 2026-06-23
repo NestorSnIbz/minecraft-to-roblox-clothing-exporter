@@ -44,6 +44,7 @@ export default function RobloxWorkspace({
   const [showGrid, setShowGrid] = useState(true);
   const [autoRotate, setAutoRotate] = useState(false);
   const [armType, setArmType] = useState<'classic' | 'slim'>('classic');
+  const [animMode, setAnimMode] = useState<'none' | 'idle' | 'walk'>('none');
 
   const { share: shareRoblox, minutesLeft } = useShareRoblox();
   const [showShareModal, setShowShareModal] = useState(false);
@@ -162,7 +163,7 @@ export default function RobloxWorkspace({
     }
   }, [skinImage]);
 
-  // Initialize and update the 3D Roblox Avatar viewer
+  // 1. Initialize and clean up 3D Roblox Avatar viewer
   useEffect(() => {
     if (robloxContainerRef.current && !robloxViewerRef.current) {
       const viewer = new ThreeViewer(robloxContainerRef.current);
@@ -171,26 +172,35 @@ export default function RobloxWorkspace({
       // Default camera to frontal view looking at torso
       viewer.resetCamera(new THREE.Vector3(0, 1, 8), new THREE.Vector3(0, 1, 0));
     }
-    if (robloxViewerRef.current) {
-      robloxViewerRef.current.autoRotate = autoRotate;
-      robloxViewerRef.current.setGridVisible(showGrid);
-      if (skinImage) {
-        const avatarGroup = buildRobloxAvatar(skinImage, armType === 'slim');
-        avatarGroup.traverse((child) => {
-          if (child instanceof THREE.Mesh && child.userData?.meshName === 'head') {
-            child.visible = false;
-          }
-        });
-        robloxViewerRef.current.setHeadModel(avatarGroup);
-      }
-    }
     return () => {
       if (robloxViewerRef.current) {
         robloxViewerRef.current.destroy();
         robloxViewerRef.current = null;
       }
     };
-  }, [skinImage, autoRotate, showGrid, armType]);
+  }, []);
+
+  // 2. Load avatar group model only when skinImage or armType updates (prevent redraw flashes)
+  useEffect(() => {
+    if (robloxViewerRef.current && skinImage) {
+      const avatarGroup = buildRobloxAvatar(skinImage, armType === 'slim');
+      avatarGroup.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.userData?.meshName === 'head') {
+          child.visible = false;
+        }
+      });
+      robloxViewerRef.current.setHeadModel(avatarGroup);
+    }
+  }, [skinImage, armType]);
+
+  // 3. Update view options and animation state dynamically (instant changes)
+  useEffect(() => {
+    if (robloxViewerRef.current) {
+      robloxViewerRef.current.autoRotate = autoRotate;
+      robloxViewerRef.current.setGridVisible(showGrid);
+      robloxViewerRef.current.animationMode = animMode;
+    }
+  }, [autoRotate, showGrid, animMode]);
 
   // Draw Roblox clothing previews
   useEffect(() => {
@@ -429,11 +439,12 @@ export default function RobloxWorkspace({
             </label>
 
             {/* Toggle Rotate */}
-            <label className="toggle-container">
+            <label className="toggle-container" style={{ opacity: skinImage ? 1 : 0.5, cursor: skinImage ? 'pointer' : 'not-allowed' }}>
               <input 
                 type="checkbox" 
                 checked={autoRotate}
                 onChange={(e) => setAutoRotate(e.target.checked)}
+                disabled={!skinImage}
                 style={{ display: 'none' }}
               />
               <span className="checkbox-custom"></span>
@@ -441,6 +452,61 @@ export default function RobloxWorkspace({
                 <RotateCw size={16} /> {t('opt_rotate')}
               </span>
             </label>
+
+            {/* Animation Selector Group */}
+            <div className="i18n-selector-container" style={{ display: 'flex', gap: '4px', background: 'rgba(255, 255, 255, 0.03)', padding: '2px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)', marginLeft: '12px', opacity: skinImage ? 1 : 0.5 }}>
+              <button 
+                className={`tab-btn ${animMode === 'none' ? 'active' : ''}`}
+                onClick={() => setAnimMode('none')}
+                disabled={!skinImage}
+                style={{ 
+                  padding: '4px 10px', 
+                  fontSize: '0.75rem', 
+                  minWidth: '45px', 
+                  flex: 'none', 
+                  cursor: skinImage ? 'pointer' : 'not-allowed',
+                  backgroundColor: animMode === 'none' ? 'var(--primary)' : 'transparent',
+                  color: animMode === 'none' ? '#ffffff' : undefined,
+                  border: animMode === 'none' ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid transparent'
+                }}
+              >
+                None
+              </button>
+              <button 
+                className={`tab-btn ${animMode === 'idle' ? 'active' : ''}`}
+                onClick={() => setAnimMode('idle')}
+                disabled={!skinImage}
+                style={{ 
+                  padding: '4px 10px', 
+                  fontSize: '0.75rem', 
+                  minWidth: '45px', 
+                  flex: 'none', 
+                  cursor: skinImage ? 'pointer' : 'not-allowed',
+                  backgroundColor: animMode === 'idle' ? 'var(--primary)' : 'transparent',
+                  color: animMode === 'idle' ? '#ffffff' : undefined,
+                  border: animMode === 'idle' ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid transparent'
+                }}
+              >
+                Idle
+              </button>
+              <button 
+                className={`tab-btn ${animMode === 'walk' ? 'active' : ''}`}
+                onClick={() => setAnimMode('walk')}
+                disabled={!skinImage}
+                style={{ 
+                  padding: '4px 10px', 
+                  fontSize: '0.75rem', 
+                  minWidth: '45px', 
+                  flex: 'none', 
+                  cursor: skinImage ? 'pointer' : 'not-allowed',
+                  backgroundColor: animMode === 'walk' ? 'var(--primary)' : 'transparent',
+                  color: animMode === 'walk' ? '#ffffff' : undefined,
+                  border: animMode === 'walk' ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid transparent'
+                }}
+              >
+                Walk
+              </button>
+            </div>
           </div>
 
           <div className="viewer-actions">
