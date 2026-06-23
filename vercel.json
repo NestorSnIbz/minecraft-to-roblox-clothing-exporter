@@ -3,11 +3,11 @@
   "rewrites": [
     {
       "source": "/share/roblox/:slug",
-      "destination": "/index.html"
+      "destination": "/index"
     },
     {
       "source": "/share/head3d/:slug",
-      "destination": "/index.html"
+      "destination": "/index"
     }
   ]
 }
