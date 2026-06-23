@@ -2,7 +2,11 @@
   "cleanUrls": true,
   "rewrites": [
     {
-      "source": "/((?!assets/|.*\\.[a-z]+$).*)",
+      "source": "/share/roblox/:slug",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/share/head3d/:slug",
       "destination": "/index.html"
     }
   ]

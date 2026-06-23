@@ -4,7 +4,6 @@ import { Box, CheckCircle, AlertTriangle, LayoutGrid } from 'lucide-react';
 import { validateAndLoadSkin } from './modules/SkinParser';
 import { extractFaces, type ExtractedFaces } from './modules/TextureExtractor';
 import { I18nProvider, useTranslation } from './modules/i18n';
-import AdColumn from './components/AdColumn';
 import DashboardView from './components/DashboardView';
 import LoadingSkeleton from './components/LoadingSkeleton';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -192,6 +191,7 @@ function AppContent({ activeTab }: { activeTab: 'dashboard' | 'head3d' | 'roblox
     exports: number;
     headUsage: number;
     robloxUsage: number;
+    blockbenchUsage?: number;
     formats: Record<string, number>;
     activity: ActivityItem[];
   }
@@ -215,6 +215,7 @@ function AppContent({ activeTab }: { activeTab: 'dashboard' | 'head3d' | 'roblox
       exports: 0,
       headUsage: 0,
       robloxUsage: 0,
+      blockbenchUsage: 0,
       formats: { GLB: 0, BBMODEL: 0, Shirt: 0, Pants: 0, OBJ: 0, FBX: 0 },
       activity: []
     };
@@ -258,17 +259,18 @@ function AppContent({ activeTab }: { activeTab: 'dashboard' | 'head3d' | 'roblox
     });
   };
 
-  const logToolVisit = (tool: 'head3d' | 'roblox') => {
+  const logToolVisit = (tool: 'head3d' | 'roblox' | 'blockbench') => {
     saveStats({
       ...stats,
       headUsage: tool === 'head3d' ? stats.headUsage + 1 : stats.headUsage,
-      robloxUsage: tool === 'roblox' ? stats.robloxUsage + 1 : stats.robloxUsage
+      robloxUsage: tool === 'roblox' ? stats.robloxUsage + 1 : stats.robloxUsage,
+      blockbenchUsage: tool === 'blockbench' ? (stats.blockbenchUsage || 0) + 1 : (stats.blockbenchUsage || 0)
     });
   };
 
   const navigateToModule = (module: 'dashboard' | 'head3d' | 'roblox' | 'blockbench') => {
     navigate(`/${module}`);
-    if (module === 'head3d' || module === 'roblox') {
+    if (module === 'head3d' || module === 'roblox' || module === 'blockbench') {
       logToolVisit(module);
     }
   };
@@ -282,7 +284,19 @@ function AppContent({ activeTab }: { activeTab: 'dashboard' | 'head3d' | 'roblox
     }, 4500);
   };
 
-  // 1. Generate default Steve crown skin on mount (or load from URL if provided)
+  // 1. Generate default Steve crown skin on mount if nothing is loaded yet
+  useEffect(() => {
+    if (!skinImage) {
+      const defaultSteve = generateSteveSkin();
+      defaultSteve.onload = () => {
+        setSkinImage(defaultSteve);
+        setSkinSrc(defaultSteve.src);
+        setExtractedFaces(extractFaces(defaultSteve));
+      };
+    }
+  }, []);
+
+  // 2. Listen to activeModule transitions to load a skin via url parameter (like Load Skin from Dashboard)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const urlParam = params.get('skinUrl');
@@ -295,27 +309,15 @@ function AppContent({ activeTab }: { activeTab: 'dashboard' | 'head3d' | 'roblox
           const file = new File([blob], 'shared_skin.png', { type: 'image/png' });
           await handleFile(file);
           
-          // Clear query params so we don't reload it on every mount
+          // Clear query params so we don't reload it on every navigation/update
           window.history.replaceState({}, document.title, window.location.pathname);
         } catch (e) {
-          console.error('Failed to pre-load shared skin:', e);
-          loadDefaultSteve();
+          console.error('Failed to load skin from query parameter:', e);
         }
       };
       loadSharedSkin();
-    } else {
-      loadDefaultSteve();
     }
-
-    function loadDefaultSteve() {
-      const defaultSteve = generateSteveSkin();
-      defaultSteve.onload = () => {
-        setSkinImage(defaultSteve);
-        setSkinSrc(defaultSteve.src);
-        setExtractedFaces(extractFaces(defaultSteve));
-      };
-    }
-  }, []);
+  }, [activeModule]);
 
   // File uploading logic
   const handleFile = async (file: File) => {
@@ -364,7 +366,6 @@ function AppContent({ activeTab }: { activeTab: 'dashboard' | 'head3d' | 'roblox
 
   return (
     <div className="layout-wrapper">
-      <AdColumn position="left" />
       <div className="app-container">
         {/* Sleek Header */}
         <header className="glass-panel app-header">
@@ -483,7 +484,6 @@ function AppContent({ activeTab }: { activeTab: 'dashboard' | 'head3d' | 'roblox
           </Suspense>
         </ErrorBoundary>
       </div>
-      <AdColumn position="right" />
 
       {/* Floating Status Notification Toasts */}
       {toast && (

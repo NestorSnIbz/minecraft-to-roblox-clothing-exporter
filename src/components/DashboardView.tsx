@@ -17,6 +17,7 @@ interface AppStats {
   exports: number;
   headUsage: number;
   robloxUsage: number;
+  blockbenchUsage?: number;
   formats: Record<string, number>;
   activity: ActivityItem[];
 }
@@ -218,12 +219,16 @@ export default function DashboardView({ stats, navigateToModule }: DashboardView
           <div className="kpi-card">
             <span className="voxel-caption">{t('dash_stat_favorite_tool')}</span>
             <span style={{ fontSize: '1.1rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {stats.headUsage === 0 && stats.robloxUsage === 0
-                ? 'N/A'
-                : stats.headUsage >= stats.robloxUsage
-                  ? t('module_3d_head')
-                  : t('module_roblox')
-              }
+              {(() => {
+                const headVal = stats.headUsage || 0;
+                const robloxVal = stats.robloxUsage || 0;
+                const bbVal = stats.blockbenchUsage || 0;
+                const maxVal = Math.max(headVal, robloxVal, bbVal);
+                if (maxVal === 0) return 'N/A';
+                if (maxVal === bbVal) return t('nav_blockbench');
+                if (maxVal === headVal) return t('module_3d_head');
+                return t('module_roblox');
+              })()}
             </span>
           </div>
         </div>
@@ -233,18 +238,22 @@ export default function DashboardView({ stats, navigateToModule }: DashboardView
           {/* Distribution Chart (Workspace Usage) */}
           <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.03)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <h4 className="voxel-caption" style={{ margin: 0 }}>{t('dash_stat_favorite_tool')}</h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', justifyContent: 'center', height: '140px', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', justifyContent: 'center', minHeight: '140px', height: 'auto', fontFamily: 'monospace', fontSize: '0.8rem' }}>
               {(() => {
-                const total = stats.headUsage + stats.robloxUsage;
-                const headPct = total > 0 ? Math.round((stats.headUsage / total) * 100) : 0;
-                const robloxPct = total > 0 ? Math.round((stats.robloxUsage / total) * 100) : 0;
+                const headCount = stats.headUsage || 0;
+                const robloxCount = stats.robloxUsage || 0;
+                const bbCount = stats.blockbenchUsage || 0;
+                const total = headCount + robloxCount + bbCount;
+                const headPct = total > 0 ? Math.round((headCount / total) * 100) : 0;
+                const robloxPct = total > 0 ? Math.round((robloxCount / total) * 100) : 0;
+                const bbPct = total > 0 ? Math.round((bbCount / total) * 100) : 0;
                 
                 return (
                   <>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', color: '#f4f4f5' }}>
                         <span>{t('module_3d_head')}</span>
-                        <span style={{ color: '#8b5cf6', fontWeight: 'bold' }}>{headPct}% ({stats.headUsage})</span>
+                        <span style={{ color: '#8b5cf6', fontWeight: 'bold' }}>{headPct}% ({headCount})</span>
                       </div>
                       <div style={{ color: '#8b5cf6', letterSpacing: '2px', fontSize: '1rem', userSelect: 'none' }}>
                         [{getBlockBar(headPct, 20)}]
@@ -254,10 +263,20 @@ export default function DashboardView({ stats, navigateToModule }: DashboardView
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', color: '#f4f4f5' }}>
                         <span>{t('module_roblox')}</span>
-                        <span style={{ color: '#ef4444', fontWeight: 'bold' }}>{robloxPct}% ({stats.robloxUsage})</span>
+                        <span style={{ color: '#ef4444', fontWeight: 'bold' }}>{robloxPct}% ({robloxCount})</span>
                       </div>
                       <div style={{ color: '#ef4444', letterSpacing: '2px', fontSize: '1rem', userSelect: 'none' }}>
                         [{getBlockBar(robloxPct, 20)}]
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#f4f4f5' }}>
+                        <span>{t('nav_blockbench')}</span>
+                        <span style={{ color: '#10b981', fontWeight: 'bold' }}>{bbPct}% ({bbCount})</span>
+                      </div>
+                      <div style={{ color: '#10b981', letterSpacing: '2px', fontSize: '1rem', userSelect: 'none' }}>
+                        [{getBlockBar(bbPct, 20)}]
                       </div>
                     </div>
                   </>
@@ -269,9 +288,9 @@ export default function DashboardView({ stats, navigateToModule }: DashboardView
           {/* Format Popularity Bar Chart */}
           <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.03)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <h4 className="voxel-caption" style={{ margin: 0 }}>{t('dash_stat_favorite')}</h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', justifyContent: 'center', height: '140px', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', justifyContent: 'center', minHeight: '140px', height: 'auto', fontFamily: 'monospace', fontSize: '0.8rem' }}>
               {(() => {
-                const formats = ['GLB', 'BBMODEL', 'Shirt', 'Pants'];
+                const formats = ['GLB', 'BBMODEL', 'Shirt', 'Pants', 'OBJ', 'FBX'];
                 const maxVal = Math.max(...formats.map(f => stats.formats[f] || 0), 1);
                 const sum = formats.reduce((s, f) => s + (stats.formats[f] || 0), 0);
                 
@@ -282,7 +301,7 @@ export default function DashboardView({ stats, navigateToModule }: DashboardView
                 return formats.map(f => {
                   const val = stats.formats[f] || 0;
                   const pct = Math.round((val / maxVal) * 100);
-                  const color = (f === 'Shirt' || f === 'Pants') ? '#ef4444' : '#8b5cf6';
+                  const color = (f === 'Shirt' || f === 'Pants') ? '#ef4444' : (f === 'OBJ' || f === 'FBX') ? '#10b981' : '#8b5cf6';
                   return (
                     <div key={f} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', color: '#f4f4f5' }}>
