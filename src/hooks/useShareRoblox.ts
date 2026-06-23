@@ -123,6 +123,31 @@ export function useShareRoblox() {
 }
 
 async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
+  if (dataUrl.startsWith('data:')) {
+    try {
+      const parts = dataUrl.split(',');
+      const mimeMatch = parts[0].match(/:(.*?);/);
+      const mime = mimeMatch ? mimeMatch[1] : 'image/png';
+      const isBase64 = parts[0].indexOf('base64') >= 0;
+      const dataStr = parts[1];
+
+      if (isBase64) {
+        const bstr = atob(dataStr);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        return new Blob([u8arr], { type: mime });
+      } else {
+        const decoded = decodeURIComponent(dataStr);
+        return new Blob([decoded], { type: mime });
+      }
+    } catch (e) {
+      console.warn('Failed to parse data URL synchronously, falling back to fetch:', e);
+    }
+  }
+
   const res = await fetch(dataUrl);
   return await res.blob();
 }
