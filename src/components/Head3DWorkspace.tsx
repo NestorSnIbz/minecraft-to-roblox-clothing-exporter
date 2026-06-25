@@ -26,10 +26,107 @@ interface Head3DWorkspaceProps {
 }
 
 /**
- * Generates a structured 3x2 grid image containing cropped base and overlay faces,
- * clearly labeled and scaled up. This makes it trivial for the Vision model to identify
- * pixel coordinates and map transparency accurately.
+ * Minecraft skin face layout (pixel coordinates on a 64×64 sheet).
+ * baseX/Y = top-left of the base (inner) layer.
+ * overlayX/Y = top-left of the overlay (outer) layer.
  */
+const FACE_LAYOUT = [
+  { key: 'right',  baseX: 16, baseY: 8,  overlayX: 48, overlayY: 8  },
+  { key: 'left',   baseX: 0,  baseY: 8,  overlayX: 32, overlayY: 8  },
+  { key: 'top',    baseX: 8,  baseY: 0,  overlayX: 40, overlayY: 0  },
+  { key: 'bottom', baseX: 16, baseY: 0,  overlayX: 48, overlayY: 0  },
+  { key: 'front',  baseX: 8,  baseY: 8,  overlayX: 40, overlayY: 8  },
+  { key: 'back',   baseX: 24, baseY: 8,  overlayX: 56, overlayY: 8  },
+] as const;
+
+/**
+ * Reads an 8×8 block of RGBA pixels from the skin image at (originX, originY).
+ * Assumes the image is 64×64 (or a multiple thereof).
+ */
+function readBlock(ctx: CanvasRenderingContext2D, originX: number, originY: number, scale: number)
+  : Uint8ClampedArray[] {
+  const rows: Uint8ClampedArray[] = [];
+  for (let r = 0; r < 8; r++) {
+    // Read one pixel per cell using the scaled coordinates
+    const rowData = new Uint8ClampedArray(8 * 4);
+    for (let c = 0; c < 8; c++) {
+      const px = Math.floor(originX * scale + c * scale);
+      const py = Math.floor(originY * scale + r * scale);
+      const d = ctx.getImageData(px, py, 1, 1).data;
+      rowData[c * 4]     = d[0];
+      rowData[c * 4 + 1] = d[1];
+      rowData[c * 4 + 2] = d[2];
+      rowData[c * 4 + 3] = d[3];
+    }
+    rows.push(rowData);
+  }
+  return rows;
+}
+
+
+
+/**
+ * Algorithmic heightmap generator.
+ *
+ * For each overlay pixel:
+ *   alpha < 10  → 0 (transparent / empty — no voxel)
+ *   alpha ≥ 10  → 1 (flush relief — same height as base, no gap)
+ *
+ * All opaque overlay pixels produce uniform flush relief.
+ * The Corner Alignment Pass below ensures seamless seams at the 4 vertical corners.
+ */
+function generateAlgorithmicHeightmap(skinImg: HTMLImageElement): HeightmapData {
+  // Draw the skin onto an off-screen canvas so we can read pixels
+  const canvas = document.createElement('canvas');
+  canvas.width  = skinImg.naturalWidth  || skinImg.width;
+  canvas.height = skinImg.naturalHeight || skinImg.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+  ctx.drawImage(skinImg, 0, 0);
+
+  // Native pixel scale (supports 64×64 and higher-res skins)
+  const scale = canvas.width / 64;
+
+  const ALPHA_THRESHOLD = 10;  // below this → transparent (no voxel)
+
+  const result: HeightmapData = {
+    offsets: {} as Record<string, number>,
+    right: [], left: [], top: [], bottom: [], front: [], back: [],
+  };
+
+  for (const faceDef of FACE_LAYOUT) {
+    // Only read overlay pixels — base layer no longer needed
+    const overlayRows = readBlock(ctx, faceDef.overlayX, faceDef.overlayY, scale);
+    result.offsets[faceDef.key] = 4.0;
+
+    const matrix: number[][] = [];
+    for (let r = 0; r < 8; r++) {
+      const row: number[] = [];
+      for (let c = 0; c < 8; c++) {
+        const alpha = overlayRows[r][c * 4 + 3];
+        // Opaque pixel → flush relief (1). Transparent → no voxel (0).
+        row.push(alpha >= ALPHA_THRESHOLD ? 1 : 0);
+      }
+      matrix.push(row);
+    }
+    (result as any)[faceDef.key] = matrix;
+  }
+
+  // ── Corner Alignment Pass ────────────────────────────────────────────────
+  // Guarantee perfect, hole-free 3D seams at the 4 vertical corners.
+  const fM = result.front, lM = result.left, rM = result.right, bM = result.back;
+  if (fM.length === 8 && lM.length === 8 && rM.length === 8 && bM.length === 8) {
+    for (let row = 0; row < 8; row++) {
+      const maxFL = Math.max(fM[row][0], lM[row][7]); fM[row][0] = maxFL; lM[row][7] = maxFL;
+      const maxFR = Math.max(fM[row][7], rM[row][0]); fM[row][7] = maxFR; rM[row][0] = maxFR;
+      const maxBR = Math.max(bM[row][0], rM[row][7]); bM[row][0] = maxBR; rM[row][7] = maxBR;
+      const maxBL = Math.max(bM[row][7], lM[row][0]); bM[row][7] = maxBL; lM[row][0] = maxBL;
+    }
+  }
+
+  return result;
+}
+
+// Keep the HeightmapData type for compatibility with HeadBuilder
 function generateAIInputImage(skinImg: HTMLImageElement): string {
   const canvas = document.createElement('canvas');
   canvas.width = 720;
@@ -102,9 +199,11 @@ function generateAIInputImage(skinImg: HTMLImageElement): string {
     ctx.strokeRect(startX + 130, startY + 60, 80, 80);
   });
 
+  // (legacy — kept so TypeScript doesn't error on the removed call-site below)
   const dataUrl = canvas.toDataURL('image/png');
   return dataUrl.split(',')[1];
 }
+
 
 interface HeightmapData {
   message?: string;
@@ -117,100 +216,6 @@ interface HeightmapData {
   back: number[][];
 }
 
-/**
- * Validates the JSON heightmap response from OpenAI, ensuring it conforms to the face offsets
- * and the 6-face 8x8 matrix format. Returns a fallback object if missing or corrupt.
- */
-function validateHeightmap(json: any): HeightmapData {
-  const faces = ['right', 'left', 'top', 'bottom', 'front', 'back'];
-  const validatedOffsets: Record<string, number> = {};
-  
-  if (json && json.offsets && typeof json.offsets === 'object') {
-    for (const face of faces) {
-      const val = Number(json.offsets[face]);
-      // Allow values between 4.0 and 4.3. Default to 4.0.
-      if (!isNaN(val) && val >= 4.0 && val <= 4.3) {
-        validatedOffsets[face] = val;
-      } else {
-        validatedOffsets[face] = 4.0;
-      }
-    }
-  } else {
-    for (const face of faces) {
-      validatedOffsets[face] = 4.0;
-    }
-  }
-
-  const validatedData: HeightmapData = {
-    message: typeof json?.message === 'string' ? json.message : undefined,
-    offsets: validatedOffsets,
-    right: [], left: [], top: [], bottom: [], front: [], back: []
-  };
-
-  for (const face of faces) {
-    let matrix: number[][] = [];
-    if (json && Array.isArray(json[face])) {
-      for (let r = 0; r < 8; r++) {
-        const rowData = json[face][r];
-        const validatedRow: number[] = [];
-        for (let c = 0; c < 8; c++) {
-          const val = Number(rowData?.[c]);
-          if (val === 1 || val === 3) {
-            validatedRow.push(val);
-          } else if (val === 2) {
-            // Legacy: treat as flush (1)
-            validatedRow.push(1);
-          } else if (val === 4) {
-            // Legacy: treat as floating (3)
-            validatedRow.push(3);
-          } else {
-            validatedRow.push(0);
-          }
-        }
-        matrix.push(validatedRow);
-      }
-    } else {
-      matrix = Array(8).fill(null).map(() => Array(8).fill(1));
-    }
-    validatedData[face as keyof Omit<HeightmapData, 'offsets' | 'message'>] = matrix;
-  }
-
-  // Corner Alignment Pass to guarantee perfect, hole-free 3D seams
-  // Front col 0 <-> Left col 7
-  // Front col 7 <-> Right col 0
-  // Back col 0 <-> Right col 7
-  // Back col 7 <-> Left col 0
-  const fM = validatedData.front;
-  const lM = validatedData.left;
-  const rM = validatedData.right;
-  const bM = validatedData.back;
-
-  if (fM.length === 8 && lM.length === 8 && rM.length === 8 && bM.length === 8) {
-    for (let r = 0; r < 8; r++) {
-      // 1. Front col 0 meets Left col 7
-      const maxFL = Math.max(fM[r][0], lM[r][7]);
-      fM[r][0] = maxFL;
-      lM[r][7] = maxFL;
-
-      // 2. Front col 7 meets Right col 0
-      const maxFR = Math.max(fM[r][7], rM[r][0]);
-      fM[r][7] = maxFR;
-      rM[r][0] = maxFR;
-
-      // 3. Back col 0 meets Right col 7
-      const maxBR = Math.max(bM[r][0], rM[r][7]);
-      bM[r][0] = maxBR;
-      rM[r][7] = maxBR;
-
-      // 4. Back col 7 meets Left col 0
-      const maxBL = Math.max(bM[r][7], lM[r][0]);
-      bM[r][7] = maxBL;
-      lM[r][0] = maxBL;
-    }
-  }
-
-  return validatedData;
-}
 
 export default function Head3DWorkspace({
   skinImage,
@@ -245,72 +250,18 @@ export default function Head3DWorkspace({
   const [puzzleAnswer, setPuzzleAnswer] = useState('');
   const [captchaError, setCaptchaError] = useState(false);
 
-  // OpenAI Voxel Relief / IA States
-  const [openaiKey, setOpenaiKey] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('openai_api_key') || '';
-    }
-    return '';
-  });
-  const [heightmap, setHeightmap] = useState<any | null>(() => {
+  // Voxel Relief States (algorithmic — no AI required)
+  const [heightmap, setHeightmap] = useState<HeightmapData | null>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('custom_heightmap');
       if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch {
-          return null;
-        }
+        try { return JSON.parse(saved); } catch { return null; }
       }
     }
     return null;
   });
-  const [useAIRelief, setUseAIRelief] = useState<boolean>(false);
-  const [aiLoading, setAiLoading] = useState<boolean>(false);
-
-  // AI Chat Adjustment States
-  const [aiMessages, setAiMessages] = useState<any[]>([]);
-  const [chatInput, setChatInput] = useState<string>('');
-  const [chatLoading, setChatLoading] = useState<boolean>(false);
-
-  interface ChatBubble {
-    role: 'user' | 'assistant';
-    text: string;
-  }
-
-  const [chatBubbles, setChatBubbles] = useState<ChatBubble[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('custom_heightmap');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (parsed && parsed.message) {
-            return [
-              { role: 'assistant', text: parsed.message }
-            ];
-          }
-        } catch {
-          // ignore
-        }
-      }
-    }
-    return [];
-  });
-
-  const chatContainerRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-    }
-  }, [chatBubbles]);
-
-  const handleOpenaiKeyChange = (val: string) => {
-    setOpenaiKey(val);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('openai_api_key', val);
-    }
-  };
+  const [useRelief, setUseRelief] = useState<boolean>(false);
+  const [reliefLoading, setReliefLoading] = useState<boolean>(false);
 
   const handleHeightmapChange = (map: HeightmapData | null) => {
     setHeightmap(map);
@@ -323,213 +274,31 @@ export default function Head3DWorkspace({
     }
   };
 
-  const handleGenerateAIRelief = async () => {
+  /** Generates the overlay heightmap using the deterministic pixel algorithm. */
+  const handleGenerateRelief = async () => {
     if (!skinImage) {
       showToast('error', t('toast_load_skin_first'));
       return;
     }
-    if (!openaiKey.trim()) {
-      showToast('error', t('toast_api_key_required'));
-      return;
-    }
-    
-    setAiLoading(true);
+    setReliefLoading(true);
     try {
-      const base64Img = generateAIInputImage(skinImage);
-      
-      const promptText = `You are a 3D Minecraft voxel artist.
-We have provided an image containing the 6 faces of a Minecraft head skin (arranged in a 3x2 grid: RIGHT, LEFT, TOP in the first row, and BOTTOM, FRONT, BACK in the second row).
-For each face, you are presented with the "Base" head layer (8x8 pixels) on the left, and the "Overlay" layer (8x8 pixels) on the right.
-The canvas background is a dark slate color (#1e1e2e).
-
-Your task is to analyze the skin image and generate:
-1. "message": A short, friendly explanation (in Spanish if the user's UI is in Spanish, or English otherwise) explaining which features you highlighted (e.g. crown, goggles, hair, headphones) and how you handled corner alignment.
-2. "offsets": A mapping of all 6 faces ("right", "left", "top", "bottom", "front", "back") to their base offset value (always return 4.0 for all faces).
-3. An 8x8 heightmap matrix for each face ("right", "left", "top", "bottom", "front", "back").
-   - The pixel values in the 8x8 grid must be:
-     - 0: if the pixel is transparent or empty in the "Overlay" layer. Transparent pixels will display the dark background color (#1e1e2e) on the canvas.
-     - 1: flush overlay. The overlay pixel protrudes flush against the base head surface. Use this for hair (forehead, sides, top, back), flat skin details, and minor ornaments.
-     - 3: floating overlay. The overlay pixel floats with a small gap behind it, away from the base head surface. Use this for accessories that hover over the head: goggles, glasses, headphones (pads and headband), mask visors, crowns, or wrapping headbands.
-
-CRITICAL RULES:
-1. Identifying Transparent vs Opaque Pixels (DO NOT LOSE ANY OVERLAY PIXELS):
-   - Any pixel in the "Overlay" layer whose color matches the dark background #1e1e2e is transparent. Its value MUST be 0.
-   - Any pixel in the "Overlay" layer that does NOT match #1e1e2e is colored/opaque. Its value MUST be 1 or 3. It must NEVER be 0. Be extremely precise — do not skip or delete any colored pixels of the overlay.
-2. Vertical Corner Alignment (CRITICAL for seamless 3D seams):
-   - The vertical corners of the head meet at:
-     - Front face column 0 meets Left face column 7.
-     - Front face column 7 meets Right face column 0.
-     - Back face column 0 meets Right face column 7.
-     - Back face column 7 meets Left face column 0.
-   - At these boundaries the heightmap values of the matching column pair MUST BE IDENTICAL in every row. If Front[row][0] is 3, then Left[row][7] must also be 3. If one is 0 the other must also be 0.
-3. Accessories Wrapping (Continuous Rings):
-   - Accessories that wrap horizontally around the head (crowns, headbands, goggle straps, headphones) must use the same value (all 3) across all faces and corner columns they occupy, forming a continuous 3D ring.
-   - Main hair must remain flush (1) — do NOT make hair float.
-4. Horizontal Feature Alignment:
-   - Features wrapping horizontally must be on the same row numbers on all horizontal faces (Front, Right, Back, Left). Do not shift them vertically between faces.
-5. Uniform Relief Size:
-   - All overlay pixels (value 1 or 3) produce the same uniform thickness. There are only two states: flush (1) or floating (3). Do NOT use values 2 or 4.
-
-Format the output strictly as a JSON object:
-{
-  "message": "A short friendly explanation",
-  "offsets": {
-    "right": 4.0,
-    "left": 4.0,
-    "top": 4.0,
-    "bottom": 4.0,
-    "front": 4.0,
-    "back": 4.0
-  },
-  "right": [[number, ...], ... (8x8 matrix)],
-  "left": [[number, ...], ... (8x8 matrix)],
-  "top": [[number, ...], ... (8x8 matrix)],
-  "bottom": [[number, ...], ... (8x8 matrix)],
-  "front": [[number, ...], ... (8x8 matrix)],
-  "back": [[number, ...], ... (8x8 matrix)]
-}
-
-Each matrix must have exactly 8 rows and 8 columns. Only use integers 0, 1, or 3 (do NOT use 2 or 4).`;
-
-
-      const initialUserMsg = {
-        role: 'user',
-        content: [
-          { type: 'text', text: promptText },
-          {
-            type: 'image_url',
-            image_url: {
-              url: `data:image/png;base64,${base64Img}`
-            }
-          }
-        ]
-      };
-
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${openaiKey}`
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [initialUserMsg],
-          response_format: { type: 'json_object' }
-        })
-      });
-
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error?.message || `HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      const content = data.choices[0].message.content;
-      const parsed = JSON.parse(content);
-      
-      const validatedMap = validateHeightmap(parsed);
-      handleHeightmapChange(validatedMap);
-
-      const assistantMsg = {
-        role: 'assistant',
-        content: content
-      };
-      setAiMessages([initialUserMsg, assistantMsg]);
-      setChatBubbles([
-        { role: 'user', text: t('chat_user_generate_initial') },
-        { role: 'assistant', text: validatedMap.message || t('chat_ai_initial_fallback') }
-      ]);
-      showToast('success', t('toast_ai_relief_success'));
+      // Small async yield so the loading state renders before heavy pixel work
+      await new Promise(r => setTimeout(r, 20));
+      const map = generateAlgorithmicHeightmap(skinImage);
+      handleHeightmapChange(map);
+      setUseRelief(true);
+      showToast('success', t('toast_relief_success'));
     } catch (err: any) {
       console.error(err);
-      showToast('error', t('toast_ai_relief_error', { error: err.message || err }));
+      showToast('error', t('toast_relief_error', { error: err.message || err }));
     } finally {
-      setAiLoading(false);
+      setReliefLoading(false);
     }
   };
 
-  const handleAdjustAIRelief = async () => {
-    if (!openaiKey.trim()) {
-      showToast('error', t('toast_api_key_required'));
-      return;
-    }
-    if (!chatInput.trim()) return;
-
-    const userText = chatInput;
-    setChatBubbles(prev => [...prev, { role: 'user', text: userText }]);
-    setChatInput('');
-    setChatLoading(true);
-
-    try {
-      const userMsg = {
-        role: 'user',
-        content: `Here is my request for adjustment: ${userText}
-
-Please analyze the original skin image provided in the first message and adjust the heightmap matrices accordingly.
-The canvas background is a dark slate color (#1e1e2e). Any transparent/empty pixel in the "Overlay" layer will show this background color and MUST have value 0. Any colored/opaque pixel MUST have value 1 or 3 (never 0). Do not delete or skip any colored parts of the overlay.
-
-Pixel values:
-- 0: transparent/empty overlay pixel.
-- 1: flush overlay (protrudes directly against the head surface). Use for hair, flat skin details, minor ornaments.
-- 3: floating overlay (hovers with a small gap behind it). Use for goggles, glasses, headphones, crowns, headbands, mask visors.
-Do NOT use values 2 or 4 — only 0, 1, or 3 are valid.
-
-You must return the COMPLETE updated JSON object containing:
-- "message": A short, friendly explanation (in Spanish if my request is in Spanish, or English if it's in English) explaining exactly what you adjusted.
-- "offsets": a mapping of all 6 faces ("right", "left", "top", "bottom", "front", "back") to their base offset values (always 4.0 for all faces).
-- "right", "left", "top", "bottom", "front", "back": the corresponding 8x8 matrices.
-
-Recall the alignment rules:
-1. Opaque vs Transparent: Any pixel in the "Overlay" showing #1e1e2e must be 0. Opaque pixels must be 1 or 3 (never 0, never 2 or 4).
-2. Corner vertical columns MUST have identical values to their adjacent face matching pair (Front col 0 <-> Left col 7, Front col 7 <-> Right col 0, Back col 0 <-> Right col 7, Back col 7 <-> Left col 0) so they connect perfectly in 3D.
-3. Accessories Wrapping (Continuous Rings): Accessories that wrap horizontally (crowns, headbands, goggle straps, headphones) must use value 3 on all faces and corner columns they occupy, forming a continuous 3D ring. Main hair must remain flush (1).
-4. Horizontal Feature Alignment: Features wrapping horizontally must be on the same row numbers on all horizontal faces (Front, Right, Back, Left). Do not shift them vertically.
-5. Do not output any conversational text or partial JSON. Only return the full updated JSON.`
-      };
-
-      const updatedMessages = [...aiMessages, userMsg];
-
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${openaiKey}`
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: updatedMessages,
-          response_format: { type: 'json_object' }
-        })
-      });
-
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error?.message || `HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      const content = data.choices[0].message.content;
-      const parsed = JSON.parse(content);
-
-      const validatedMap = validateHeightmap(parsed);
-      handleHeightmapChange(validatedMap);
-
-      const assistantMsg = {
-        role: 'assistant',
-        content: content
-      };
-      setAiMessages([...updatedMessages, assistantMsg]);
-      setChatBubbles(prev => [
-        ...prev,
-        { role: 'assistant', text: validatedMap.message || t('chat_ai_adjust_fallback') }
-      ]);
-      showToast('success', t('toast_ai_relief_success'));
-    } catch (err: any) {
-      console.error(err);
-      showToast('error', t('toast_ai_relief_error', { error: err.message || err }));
-    } finally {
-      setChatLoading(false);
-    }
+  // (removed: handleAdjustAIRelief — AI chat adjustment no longer needed)
+  const _unused_handleAdjustAIRelief = async () => {
+    // body removed — function is no longer used
   };
 
   const generatePuzzle = () => {
@@ -619,13 +388,10 @@ Recall the alignment rules:
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<ThreeViewer | null>(null);
 
-  // Reset heightmap and useAIRelief when a new skin is loaded
+  // Reset heightmap when a new skin is loaded
   useEffect(() => {
     setHeightmap(null);
-    setUseAIRelief(false);
-    setAiMessages([]);
-    setChatInput('');
-    setChatBubbles([]);
+    setUseRelief(false);
     if (typeof window !== 'undefined') {
       localStorage.removeItem('custom_heightmap');
     }
@@ -642,7 +408,7 @@ Recall the alignment rules:
       viewerRef.current.autoRotate = autoRotate;
       viewerRef.current.setGridVisible(showGrid);
       if (skinImage) {
-        const activeHeightmap = useAIRelief && heightmap ? heightmap : undefined;
+        const activeHeightmap = useRelief && heightmap ? heightmap : undefined;
         const headGroup = build3DHead(skinImage, activeHeightmap);
         viewerRef.current.setHeadModel(headGroup);
       }
@@ -653,7 +419,7 @@ Recall the alignment rules:
         viewerRef.current = null;
       }
     };
-  }, [skinImage, autoRotate, showGrid, useAIRelief, heightmap]);
+  }, [skinImage, autoRotate, showGrid, useRelief, heightmap]);
 
   const handleExportOBJ = async () => {
     if (!viewerRef.current) return;
@@ -667,7 +433,7 @@ Recall the alignment rules:
       return;
     }
     try {
-      await exportToOBJ(headModel, skinImage, useAIRelief && heightmap ? heightmap : undefined);
+      await exportToOBJ(headModel, skinImage, useRelief && heightmap ? heightmap : undefined);
       showToast('success', t('toast_obj_success'));
       logExport('OBJ', 'skinbridge_cabeza.obj');
     } catch (err: any) {
@@ -687,7 +453,7 @@ Recall the alignment rules:
       return;
     }
     try {
-      await exportToFBX(headModel, skinImage, useAIRelief && heightmap ? heightmap : undefined);
+      await exportToFBX(headModel, skinImage, useRelief && heightmap ? heightmap : undefined);
       showToast('success', t('toast_fbx_success'));
       logExport('FBX', 'skinbridge_cabeza.fbx');
     } catch (err: any) {
@@ -704,7 +470,7 @@ Recall the alignment rules:
     }
 
     try {
-      await exportToGLB(headModel, skinImage || undefined, useAIRelief && heightmap ? heightmap : undefined);
+      await exportToGLB(headModel, skinImage || undefined, useRelief && heightmap ? heightmap : undefined);
       showToast('success', t('toast_glb_success'));
       logExport('GLB', 'skinbridge_cabeza.glb');
     } catch (err: any) {
@@ -814,211 +580,78 @@ Recall the alignment rules:
           )}
         </div>
 
-        {/* 3D Voxel Relief (IA) Section */}
+        {/* 3D Voxel Relief Section */}
         {skinImage && (
           <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>{t('relief_classic')} / {t('relief_ai')}</h3>
-            <div className="tabs-container">
-              <button 
-                className={`tab-btn ${!useAIRelief ? 'active' : ''}`}
-                onClick={() => setUseAIRelief(false)}
-              >
-                {t('relief_classic')}
-              </button>
-              <button 
-                className={`tab-btn ${useAIRelief ? 'active' : ''}`}
-                onClick={() => setUseAIRelief(true)}
-              >
-                {t('relief_ai')}
-              </button>
-            </div>
             
-            {useAIRelief && (
-              <div className="glass-panel" style={{
-                padding: '12px',
-                borderRadius: '8px',
-                backgroundColor: 'rgba(255, 255, 255, 0.02)',
-                border: '1px solid rgba(255, 255, 255, 0.05)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '10px'
+            {/* Relief description */}
+            <p style={{ margin: 0, fontSize: '0.75rem', color: '#a1a1aa', lineHeight: '1.4' }}>
+              {t('relief_description')}
+            </p>
+
+            {/* Generate button */}
+            <button
+              className="glow-btn"
+              onClick={handleGenerateRelief}
+              disabled={reliefLoading}
+              style={{ padding: '8px 12px', fontSize: '0.8rem', fontWeight: 600, width: '100%', justifyContent: 'center' }}
+            >
+              {reliefLoading ? t('btn_generating_relief') : t('btn_generate_relief')}
+            </button>
+
+            {/* Toggle relief on/off after generation */}
+            {heightmap && (
+              <label className="toggle-container" style={{ marginTop: '4px' }}>
+                <input
+                  type="checkbox"
+                  checked={useRelief}
+                  onChange={(e) => setUseRelief(e.target.checked)}
+                  style={{ display: 'none' }}
+                />
+                <span className="checkbox-custom"></span>
+                <span style={{ fontSize: '0.8rem' }}>{t('toggle_relief_label')}</span>
+              </label>
+            )}
+
+            {/* Per-face flush/floating indicators */}
+            {heightmap && useRelief && heightmap.offsets && (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: '6px',
+                padding: '10px',
+                borderRadius: '6px',
+                backgroundColor: 'rgba(0,0,0,0.2)',
+                border: '1px solid rgba(255,255,255,0.05)',
               }}>
-                <p style={{ margin: 0, fontSize: '0.75rem', color: '#a1a1aa', lineHeight: '1.4' }}>
-                  {t('relief_description')}
-                </p>
-                
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#e4e4e7' }}>
-                    {t('openai_key_label')}
-                  </label>
-                  <input
-                    type="password"
-                    value={openaiKey}
-                    onChange={(e) => handleOpenaiKeyChange(e.target.value)}
-                    placeholder={t('openai_key_placeholder')}
-                    style={{
-                      padding: '8px 12px',
-                      borderRadius: '6px',
-                      backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      color: '#fff',
-                      fontSize: '0.8rem',
-                      outline: 'none',
-                      width: '100%',
-                      boxSizing: 'border-box'
-                    }}
-                  />
-                </div>
-                
-                <button
-                  className="glow-btn"
-                  onClick={handleGenerateAIRelief}
-                  disabled={aiLoading}
-                  style={{
-                    padding: '8px 12px',
-                    fontSize: '0.8rem',
-                    fontWeight: 600,
-                    width: '100%',
-                    justifyContent: 'center'
-                  }}
-                >
-                  {aiLoading ? t('btn_generating_relief') : t('btn_generate_relief')}
-                </button>
-                
-                <p style={{ margin: 0, fontSize: '0.7rem', color: '#71717a', lineHeight: '1.3' }}>
-                  {t('relief_export_note')}
-                </p>
-
-                {/* Interactive AI Chat controls */}
-                {heightmap && (
-                  <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '16px' }}>
-                    {/* Current offsets decided by AI */}
-                    {heightmap.offsets && (
-                      <div style={{
-                        padding: '10px',
-                        borderRadius: '6px',
-                        backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                        border: '1px solid rgba(255, 255, 255, 0.05)',
-                      }}>
-                        <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#e4e4e7', marginBottom: '6px' }}>
-                          {t('label_ai_offsets')}
-                        </div>
-                        <div style={{
-                          display: 'grid',
-                          gridTemplateColumns: 'repeat(3, 1fr)',
-                          gap: '6px',
-                        }}>
-                          {Object.entries(heightmap.offsets).map(([face, val]) => {
-                            const faceMatrix = heightmap[face] as number[][] | undefined;
-                            const hasFloating = faceMatrix ? faceMatrix.some(row => row.some(v => v === 3 || v === 4)) : false;
-                            const isFloating = (val as number) > 4.0 || hasFloating;
-                            return (
-                              <div key={face} style={{
-                                padding: '4px 6px',
-                                borderRadius: '4px',
-                                backgroundColor: 'rgba(255, 255, 255, 0.02)',
-                                border: '1px solid rgba(255, 255, 255, 0.05)',
-                                fontSize: '0.7rem',
-                                color: '#a1a1aa',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}>
-                                <span style={{ textTransform: 'capitalize', fontWeight: 'bold', color: '#e4e4e7', marginBottom: '2px' }}>
-                                  {t(`face_${face}`) || face}
-                                </span>
-                                <span style={{
-                                  color: isFloating ? '#38bdf8' : '#a1a1aa',
-                                  fontWeight: isFloating ? 'bold' : 'normal'
-                                }}>
-                                  {isFloating ? t('offset_gap') : t('offset_flush')}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Chat bubbles container */}
-                    {chatBubbles.length > 0 && (
-                      <div style={{
-                        maxHeight: '160px',
-                        overflowY: 'auto',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '8px',
-                        padding: '8px',
-                        borderRadius: '6px',
-                        backgroundColor: 'rgba(0, 0, 0, 0.25)',
-                        border: '1px solid rgba(255, 255, 255, 0.05)',
-                      }} ref={chatContainerRef}>
-                        {chatBubbles.map((bubble, idx) => (
-                          <div key={idx} style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: bubble.role === 'user' ? 'flex-end' : 'flex-start',
-                          }}>
-                            <div style={{
-                              maxWidth: '85%',
-                              padding: '6px 10px',
-                              borderRadius: '8px',
-                              fontSize: '0.75rem',
-                              lineHeight: '1.3',
-                              backgroundColor: bubble.role === 'user' ? 'rgba(13, 148, 136, 0.4)' : 'rgba(255, 255, 255, 0.05)',
-                              color: bubble.role === 'user' ? '#fff' : '#e4e4e7',
-                              border: bubble.role === 'user' ? '1px solid rgba(13, 148, 136, 0.6)' : '1px solid rgba(255, 255, 255, 0.05)',
-                            }}>
-                              {bubble.text}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#e4e4e7', display: 'block', marginTop: '4px' }}>
-                      {t('label_chat_instructions')}
-                    </label>
-                    <textarea
-                      value={chatInput}
-                      onChange={(e) => setChatInput(e.target.value)}
-                      placeholder={t('placeholder_chat_input')}
-                      rows={2}
-                      style={{
-                        padding: '8px 12px',
-                        borderRadius: '6px',
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                        color: '#fff',
-                        fontSize: '0.8rem',
-                        outline: 'none',
-                        resize: 'none',
-                        width: '100%',
-                        boxSizing: 'border-box'
-                      }}
-                    />
-                    <button
-                      className="glow-btn-secondary"
-                      onClick={handleAdjustAIRelief}
-                      disabled={chatLoading || !chatInput.trim()}
-                      style={{
-                        padding: '8px 12px',
-                        fontSize: '0.8rem',
-                        fontWeight: 800,
-                        width: '100%',
-                        justifyContent: 'center',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                      }}
-                    >
-                      {chatLoading ? t('btn_adjusting_relief') : t('btn_adjust_relief')}
-                    </button>
-                  </div>
-                )}
+                {Object.entries(heightmap.offsets).map(([face, val]) => {
+                  const faceMatrix = (heightmap as any)[face] as number[][] | undefined;
+                  const hasFloating = faceMatrix ? faceMatrix.some(row => row.some((v: number) => v === 3)) : false;
+                  const isFloating = (val as number) > 4.0 || hasFloating;
+                  return (
+                    <div key={face} style={{
+                      padding: '4px 6px', borderRadius: '4px',
+                      backgroundColor: 'rgba(255,255,255,0.02)',
+                      border: '1px solid rgba(255,255,255,0.05)',
+                      fontSize: '0.7rem', color: '#a1a1aa',
+                      display: 'flex', flexDirection: 'column',
+                      alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <span style={{ textTransform: 'capitalize', fontWeight: 'bold', color: '#e4e4e7', marginBottom: '2px' }}>
+                        {t(`face_${face}`) || face}
+                      </span>
+                      <span style={{ color: isFloating ? '#38bdf8' : '#a1a1aa', fontWeight: isFloating ? 'bold' : 'normal' }}>
+                        {isFloating ? t('offset_gap') : t('offset_flush')}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
+
+            <p style={{ margin: 0, fontSize: '0.7rem', color: '#71717a', lineHeight: '1.3' }}>
+              {t('relief_export_note')}
+            </p>
           </div>
         )}
       </section>
