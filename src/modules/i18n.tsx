@@ -181,6 +181,23 @@ export const translations: Record<Language, TranslationDictionary> = {
     editor_clear: "Clear Layer",
     editing_part: "Editing",
     hover_to_identify: "Hover over the canvas to identify the body part",
+    
+    // Voxel Relief (Algorithmic)
+    btn_generate_relief: "Generate 3D Relief",
+    btn_generating_relief: "Generating Relief...",
+    toast_relief_success: "3D voxel relief generated successfully!",
+    toast_relief_error: "Error generating relief: {error}",
+    relief_description: "Automatically calculates 3D relief from your skin's overlay pixels. Transparent pixels are skipped; opaque ones become raised voxels (flush or floating depending on how different they are from the base layer).",
+    relief_export_note: "Note: Exports now use separate classic and relief paths for OBJ, FBX, BBModel, and GLB. When relief is enabled, the exporter uses the relief-specific path.",
+    toggle_relief_label: "Show 3D Relief",
+    face_right: "Right",
+    face_left: "Left",
+    face_top: "Top",
+    face_bottom: "Bottom",
+    face_front: "Front",
+    face_back: "Back",
+    offset_gap: "Floating",
+    offset_flush: "Flush",
   },
   es: {
     // Header
@@ -356,6 +373,23 @@ export const translations: Record<Language, TranslationDictionary> = {
     editor_clear: "Limpiar Capa",
     editing_part: "Editando",
     hover_to_identify: "Pasa el mouse sobre el lienzo para identificar la parte del cuerpo",
+
+    // Voxel Relief (Algorítmico)
+    btn_generate_relief: "Generar Relieve 3D",
+    btn_generating_relief: "Generando Relieve...",
+    toast_relief_success: "¡Relieve voxel 3D generado con éxito!",
+    toast_relief_error: "Error al generar el relieve: {error}",
+    relief_description: "Calcula automáticamente el relieve 3D a partir de los píxeles del overlay de tu skin. Los píxeles transparentes se omiten; los opacos se convierten en vóxeles elevados (flush o flotantes según cuánto difieran de la capa base).",
+    relief_export_note: "Nota: Ahora OBJ, FBX, BBModel y GLB usan rutas separadas para exportar en modo clásico y con relieve. Cuando el relieve está activo, se usa la ruta específica de relieve.",
+    toggle_relief_label: "Mostrar Relieve 3D",
+    face_right: "Derecha",
+    face_left: "Izquierda",
+    face_top: "Superior",
+    face_bottom: "Inferior",
+    face_front: "Frontal",
+    face_back: "Posterior",
+    offset_gap: "Flotante",
+    offset_flush: "Alineado",
   }
 };
 

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OBJExporter as ThreeOBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
+import { buildVoxelizedOverlayWithRelief } from './HeadBuilder';
 
 /**
  * Downloads text content as a file in the browser.
@@ -134,6 +135,34 @@ function buildPlaneGeometry(
 }
 
 /**
+ * Builds a BoxGeometry (non-indexed) with all UV coordinates mapped to a single pixel center
+ * to ensure that all 6 sides of the voxel cube render as a solid pixel color.
+ */
+function buildBoxGeometry(
+  w: number,
+  h: number,
+  d: number,
+  uMin: number,
+  uMax: number,
+  vMin: number,
+  vMax: number
+): THREE.BufferGeometry {
+  const geom = new THREE.BoxGeometry(w, h, d);
+  const uvAttr = geom.attributes.uv as THREE.BufferAttribute;
+  const uCenter = (uMin + uMax) / 2;
+  const vCenter = (vMin + vMax) / 2;
+  
+  for (let i = 0; i < uvAttr.count; i++) {
+    uvAttr.setXY(i, uCenter, vCenter);
+  }
+  uvAttr.needsUpdate = true;
+
+  const nonIndexed = geom.toNonIndexed();
+  geom.dispose();
+  return nonIndexed;
+}
+
+/**
  * Merges multiple BufferGeometries (non-indexed) into a single BufferGeometry.
  */
 function mergeBufferGeometries(geometries: THREE.BufferGeometry[]): THREE.BufferGeometry {
@@ -199,7 +228,8 @@ export function buildBaseHead(skinImage: HTMLImageElement): THREE.Group {
   canvas.width = 64;
   canvas.height = 64;
   const ctx = canvas.getContext('2d')!;
-  ctx.drawImage(skinImage, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(skinImage, 0, 0, 64, 64);
   const imgData = ctx.getImageData(0, 0, 64, 64);
 
   const pixelSize = 1.0; // Base head size is 8x8x8, so pixel size is 1.0
@@ -251,7 +281,7 @@ export function buildBaseHead(skinImage: HTMLImageElement): THREE.Group {
         geom.rotateX(Math.PI / 2);
       },
       getPos: (col: number, row: number) => ({
-        x: gridOffset - col * pixelSize,
+        x: -gridOffset + col * pixelSize,
         y: -offset,
         z: -gridOffset + row * pixelSize
       })
@@ -333,10 +363,14 @@ export function buildBaseHead(skinImage: HTMLImageElement): THREE.Group {
 }
 
 /**
- * Builds a 3D group of flat planes representing only the non-transparent pixels in the skin's overlay layer.
- * Merges all planes into a single consolidated mesh named 'HeadOverlay' to preserve 3D relief in Roblox Studio.
+ * Builds a 3D group representing only the non-transparent pixels in the skin's overlay layer.
+ * Supports optional 3D voxel relief (thickness/depth) when a heightmap is provided.
+ * Merges all voxels/planes into a single consolidated mesh named 'HeadOverlay' to preserve 3D relief in Roblox Studio.
  */
-export function buildVoxelizedOverlay(skinImage: HTMLImageElement): THREE.Group {
+export function buildVoxelizedOverlay(
+  skinImage: HTMLImageElement,
+  heightmap?: any
+): THREE.Group {
   const group = new THREE.Group();
   group.name = 'HeadOverlayVoxelized';
 
@@ -345,90 +379,161 @@ export function buildVoxelizedOverlay(skinImage: HTMLImageElement): THREE.Group 
   canvas.width = 64;
   canvas.height = 64;
   const ctx = canvas.getContext('2d')!;
-  ctx.drawImage(skinImage, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(skinImage, 0, 0, 64, 64);
   const imgData = ctx.getImageData(0, 0, 64, 64);
 
   const pixelSize = 1.125;
-  const offset = 4.5;
   const gridOffset = 3.9375;
+  const flatOffset = 4.5; // classic flat plane offset
+
+  // Handle dynamic offsets decided by the AI, or legacy format
+  let offsets = { right: 4.0, left: 4.0, top: 4.0, bottom: 4.0, front: 4.0, back: 4.0 };
+
+  if (heightmap && heightmap.offsets) {
+    offsets = heightmap.offsets;
+  } else if (heightmap) {
+    // Legacy support: only front face had 4.15 gap
+    offsets = { right: 4.0, left: 4.0, top: 4.0, bottom: 4.0, front: 4.15, back: 4.0 };
+  }
+
+  // Initialize occupied Set with the base head volume (0..7 on all axes)
+  const occupied = new Set<string>();
+  for (let x = 0; x < 8; x++) {
+    for (let y = 0; y < 8; y++) {
+      for (let z = 0; z < 8; z++) {
+        occupied.add(`${x},${y},${z}`);
+      }
+    }
+  }
 
   const faces = [
     { // Face 0 (Right, +X)
-      faceIndex: 0,
+      key: 'right',
       startX: 48, startY: 8,
       applyRotation: (geom: THREE.BufferGeometry) => {
         geom.rotateY(Math.PI / 2);
       },
-      getPos: (col: number, row: number) => ({
-        x: offset,
-        y: gridOffset - row * pixelSize,
-        z: gridOffset - col * pixelSize
-      })
+      getGridCoord: (col: number, row: number, d: number) => ({
+        gx: 7 + d,
+        gy: 7 - row,
+        gz: 7 - col
+      }),
+      getPos: (col: number, row: number, thickness: number, pixelOffset: number) => {
+        const d = thickness > 0 ? (pixelOffset + thickness / 2) : flatOffset;
+        return {
+          x: d,
+          y: gridOffset - row * pixelSize,
+          z: gridOffset - col * pixelSize
+        };
+      }
     },
     { // Face 1 (Left, -X)
-      faceIndex: 1,
+      key: 'left',
       startX: 32, startY: 8,
       applyRotation: (geom: THREE.BufferGeometry) => {
         geom.rotateY(-Math.PI / 2);
       },
-      getPos: (col: number, row: number) => ({
-        x: -offset,
-        y: gridOffset - row * pixelSize,
-        z: -gridOffset + col * pixelSize
-      })
+      getGridCoord: (col: number, row: number, d: number) => ({
+        gx: 0 - d,
+        gy: 7 - row,
+        gz: col
+      }),
+      getPos: (col: number, row: number, thickness: number, pixelOffset: number) => {
+        const d = thickness > 0 ? (pixelOffset + thickness / 2) : flatOffset;
+        return {
+          x: -d,
+          y: gridOffset - row * pixelSize,
+          z: -gridOffset + col * pixelSize
+        };
+      }
     },
     { // Face 2 (Top, +Y)
-      faceIndex: 2,
+      key: 'top',
       startX: 40, startY: 0,
       applyRotation: (geom: THREE.BufferGeometry) => {
         geom.rotateX(-Math.PI / 2);
       },
-      getPos: (col: number, row: number) => ({
-        x: -gridOffset + col * pixelSize,
-        y: offset,
-        z: -gridOffset + row * pixelSize
-      })
+      getGridCoord: (col: number, row: number, d: number) => ({
+        gx: col,
+        gy: 7 + d,
+        gz: row
+      }),
+      getPos: (col: number, row: number, thickness: number, pixelOffset: number) => {
+        const d = thickness > 0 ? (pixelOffset + thickness / 2) : flatOffset;
+        return {
+          x: -gridOffset + col * pixelSize,
+          y: d,
+          z: -gridOffset + row * pixelSize
+        };
+      }
     },
     { // Face 3 (Bottom, -Y)
-      faceIndex: 3,
+      key: 'bottom',
       startX: 48, startY: 0,
       applyRotation: (geom: THREE.BufferGeometry) => {
         geom.rotateZ(Math.PI);
         geom.rotateX(Math.PI / 2);
       },
-      getPos: (col: number, row: number) => ({
-        x: gridOffset - col * pixelSize,
-        y: -offset,
-        z: -gridOffset + row * pixelSize
-      })
+      getGridCoord: (col: number, row: number, d: number) => ({
+        gx: 7 - col,
+        gy: 0 - d,
+        gz: row
+      }),
+      getPos: (col: number, row: number, thickness: number, pixelOffset: number) => {
+        const d = thickness > 0 ? (pixelOffset + thickness / 2) : flatOffset;
+        return {
+          x: -gridOffset + col * pixelSize,
+          y: -d,
+          z: -gridOffset + row * pixelSize
+        };
+      }
     },
     { // Face 4 (Front, +Z)
-      faceIndex: 4,
+      key: 'front',
       startX: 40, startY: 8,
       applyRotation: (_geom: THREE.BufferGeometry) => {},
-      getPos: (col: number, row: number) => ({
-        x: -gridOffset + col * pixelSize,
-        y: gridOffset - row * pixelSize,
-        z: offset
-      })
+      getGridCoord: (col: number, row: number, d: number) => ({
+        gx: col,
+        gy: 7 - row,
+        gz: 7 + d
+      }),
+      getPos: (col: number, row: number, thickness: number, pixelOffset: number) => {
+        const d = thickness > 0 ? (pixelOffset + thickness / 2) : flatOffset;
+        return {
+          x: -gridOffset + col * pixelSize,
+          y: gridOffset - row * pixelSize,
+          z: d
+        };
+      }
     },
     { // Face 5 (Back, -Z)
-      faceIndex: 5,
+      key: 'back',
       startX: 56, startY: 8,
       applyRotation: (geom: THREE.BufferGeometry) => {
         geom.rotateY(Math.PI);
       },
-      getPos: (col: number, row: number) => ({
-        x: gridOffset - col * pixelSize,
-        y: gridOffset - row * pixelSize,
-        z: -offset
-      })
+      getGridCoord: (col: number, row: number, d: number) => ({
+        gx: 7 - col,
+        gy: 7 - row,
+        gz: 0 - d
+      }),
+      getPos: (col: number, row: number, thickness: number, pixelOffset: number) => {
+        const d = thickness > 0 ? (pixelOffset + thickness / 2) : flatOffset;
+        return {
+          x: gridOffset - col * pixelSize,
+          y: gridOffset - row * pixelSize,
+          z: -d
+        };
+      }
     }
   ];
 
   const geometries: THREE.BufferGeometry[] = [];
 
   faces.forEach((face) => {
+    const faceHeightmap = heightmap ? heightmap[face.key] : null;
+
     for (let row = 0; row < 8; row++) {
       for (let col = 0; col < 8; col++) {
         const px = face.startX + col;
@@ -436,27 +541,90 @@ export function buildVoxelizedOverlay(skinImage: HTMLImageElement): THREE.Group 
         const idx = (py * 64 + px) * 4;
         const alpha = imgData.data[idx + 3];
 
-        // Only build geometry if pixel is opaque
         if (alpha > 10) {
           const uMin = px / 64;
           const uMax = (px + 1) / 64;
           const vMin = (64 - (py + 1)) / 64;
           const vMax = (64 - py) / 64;
 
-          // Map the entire quad to the exact center of the pixel to completely eliminate bilinear bleeding (orange lines)
           const uCenter = (uMin + uMax) / 2;
           const vCenter = (vMin + vMax) / 2;
 
-          const geom = buildPlaneGeometry(pixelSize, pixelSize, uCenter, uCenter, vCenter, vCenter);
-          
-          // Apply rotation
-          face.applyRotation(geom);
-          
-          // Apply translation
-          const pos = face.getPos(col, row);
-          geom.translate(pos.x, pos.y, pos.z);
-          
-          geometries.push(geom);
+          if (heightmap) {
+            let heightVal = faceHeightmap ? faceHeightmap[row]?.[col] ?? 1 : 1;
+            if (heightVal === 0) {
+              heightVal = 1;
+            }
+            const faceDefaultOffset = offsets[face.key as keyof typeof offsets] ?? 4.0;
+            
+            // Determine active layers
+            let activeLayers: number[] = [];
+            if (heightVal === 1) {
+              activeLayers = [1];
+            } else if (heightVal === 2) {
+              activeLayers = [1, 2];
+            } else if (heightVal === 3) {
+              activeLayers = [2];
+            } else if (heightVal === 4) {
+              activeLayers = [2, 3];
+            }
+
+            // Check coordinate occupancy
+            const freeLayers: number[] = [];
+            activeLayers.forEach((d) => {
+              const coord = face.getGridCoord(col, row, d);
+              const coordKey = `${coord.gx},${coord.gy},${coord.gz}`;
+              if (!occupied.has(coordKey)) {
+                occupied.add(coordKey);
+                freeLayers.push(d);
+              }
+            });
+
+            if (freeLayers.length === 0) {
+              continue;
+            }
+
+            const addBox = (thickness: number, pixelOffset: number) => {
+              const geom = buildBoxGeometry(pixelSize, pixelSize, thickness, uMin, uMax, vMin, vMax);
+              face.applyRotation(geom);
+              const pos = face.getPos(col, row, thickness, pixelOffset);
+              geom.translate(pos.x, pos.y, pos.z);
+              geometries.push(geom);
+            };
+
+            if (heightVal === 1) {
+              addBox(0.35, faceDefaultOffset);
+            } else if (heightVal === 2) {
+              const hasL1 = freeLayers.includes(1);
+              const hasL2 = freeLayers.includes(2);
+              if (hasL1 && hasL2) {
+                addBox(0.7, faceDefaultOffset);
+              } else if (hasL1) {
+                addBox(0.35, faceDefaultOffset);
+              } else if (hasL2) {
+                addBox(0.35, faceDefaultOffset + 0.35);
+              }
+            } else if (heightVal === 3) {
+              addBox(0.35, 4.15);
+            } else if (heightVal === 4) {
+              const hasL2 = freeLayers.includes(2);
+              const hasL3 = freeLayers.includes(3);
+              if (hasL2 && hasL3) {
+                addBox(0.7, 4.15);
+              } else if (hasL2) {
+                addBox(0.35, 4.15);
+              } else if (hasL3) {
+                addBox(0.35, 4.5);
+              }
+            }
+          } else {
+            // Flat quads do not have volume/heightmap, so we just generate them normally
+            const geom = buildPlaneGeometry(pixelSize, pixelSize, uCenter, uCenter, vCenter, vCenter);
+            face.applyRotation(geom);
+            const pos = face.getPos(col, row, 0, 0);
+            geom.translate(pos.x, pos.y, pos.z);
+            geometries.push(geom);
+          }
         }
       }
     }
@@ -483,11 +651,54 @@ export function buildVoxelizedOverlay(skinImage: HTMLImageElement): THREE.Group 
   return group;
 }
 
+function assignNamedExportMaterials(object: THREE.Object3D) {
+  object.traverse((child) => {
+    if (!(child instanceof THREE.Mesh) || !child.material) {
+      return;
+    }
+
+    const materialName = child.name === 'Head' ? 'HeadMaterial' : 'OverlayMaterial';
+    if (Array.isArray(child.material)) {
+      child.material.forEach((material) => {
+        material.name = materialName;
+      });
+    } else {
+      child.material.name = materialName;
+    }
+  });
+}
+
+export function buildReliefExportGroup(
+  skinImage: HTMLImageElement,
+  heightmap: any
+): THREE.Group {
+  const exportGroup = new THREE.Group();
+  exportGroup.name = 'MinecraftHead';
+
+  const voxelizedHead = buildBaseHead(skinImage);
+  voxelizedHead.traverse((child) => {
+    if (child instanceof THREE.Mesh && child.material) {
+      child.material.name = 'HeadMaterial';
+    }
+  });
+  exportGroup.add(voxelizedHead);
+
+  const reliefOverlay = buildVoxelizedOverlayWithRelief(skinImage, heightmap);
+  reliefOverlay.traverse((child) => {
+    if (child instanceof THREE.Mesh && child.material) {
+      child.material.name = 'OverlayMaterial';
+    }
+  });
+  exportGroup.add(reliefOverlay);
+
+  return exportGroup;
+}
+
 /**
  * Exports the Three.js head model to OBJ + MTL + PNG format.
- * Voxelizes the overlay layer as flat quads (like Minecraft) to ensure correct transparency and look in Roblox.
+ * Voxelizes the overlay layer as flat quads or 3D voxel cubes (if heightmap is provided) to ensure correct look in Roblox.
  */
-export function exportToOBJ(_input: THREE.Object3D, skinImage: HTMLImageElement): Promise<void> {
+export function exportToOBJClassic(skinImage: HTMLImageElement): Promise<void> {
   return new Promise((resolve, reject) => {
     try {
       // Create a temporary export group
@@ -505,7 +716,7 @@ export function exportToOBJ(_input: THREE.Object3D, skinImage: HTMLImageElement)
       });
       exportGroup.add(voxelizedHead);
 
-      // 2. Add the voxelized overlay (flat planes)
+      // 2. Add the voxelized overlay (flat planes or relief boxes)
       const voxelizedOverlay = buildVoxelizedOverlay(skinImage);
       voxelizedOverlay.traverse((child) => {
         if (child instanceof THREE.Mesh) {
@@ -561,4 +772,65 @@ map_Kd skinbridge_textura.png
       reject(error);
     }
   });
+}
+
+export function exportToOBJWithRelief(
+  skinImage: HTMLImageElement,
+  heightmap: any
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    try {
+      const exportGroup = buildReliefExportGroup(skinImage, heightmap);
+      assignNamedExportMaterials(exportGroup);
+
+      const exporter = new ThreeOBJExporter();
+      const rawObj = exporter.parse(exportGroup);
+      const objText = `mtllib skinbridge_cabeza.mtl\n${rawObj}`;
+
+      const mtlText = `# Minecraft Head - Material Template Library
+# Generated by Minecraft 3D Head Creator
+
+newmtl HeadMaterial
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+Ns 10.000
+d 1.000
+illum 2
+map_Kd skinbridge_textura.png
+
+newmtl OverlayMaterial
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+Ns 10.000
+d 1.000
+illum 2
+map_Kd skinbridge_textura.png
+`;
+
+      downloadTextFile(objText, 'skinbridge_cabeza.obj', 'text/plain');
+
+      setTimeout(() => {
+        downloadTextFile(mtlText, 'skinbridge_cabeza.mtl', 'text/plain');
+      }, 200);
+
+      setTimeout(async () => {
+        await downloadSkinImage(skinImage, 'skinbridge_textura.png');
+        resolve();
+      }, 400);
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+export function exportToOBJ(
+  _input: THREE.Object3D,
+  skinImage: HTMLImageElement,
+  heightmap?: any
+): Promise<void> {
+  return heightmap
+    ? exportToOBJWithRelief(skinImage, heightmap)
+    : exportToOBJClassic(skinImage);
 }

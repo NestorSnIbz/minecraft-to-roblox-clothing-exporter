@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { exportFbx } from 'three-js-fbx-exporter';
-import { buildBaseHead, buildVoxelizedOverlay, dilateTexture } from './OBJExporter';
+import { buildBaseHead, buildVoxelizedOverlay, buildReliefExportGroup, dilateTexture } from './OBJExporter';
 
 /**
  * Downloads a binary buffer as a file in the browser.
@@ -21,13 +21,35 @@ function downloadBinaryFile(data: Uint8Array, filename: string) {
 
 /**
  * Exports the Three.js head model to a binary FBX file.
- * Voxelizes the base head and overlay as flat planes/quads to ensure correct transparency and look in Roblox.
+ * Voxelizes the base head and overlay as flat planes/quads (or 3D voxel cubes if heightmap is provided) to ensure correct look in Roblox.
  * Employs dilated textures scaled to 1024x1024 to prevent filtering seams.
  *
  * @param _input The THREE.Object3D (head group) - ignored, we rebuild voxelized geometry like OBJ.
  * @param skinImage The HTMLImageElement containing the skin
+ * @param heightmap Optional heightmap for overlay relief
  */
-export function exportToFBX(_input: THREE.Object3D, skinImage: HTMLImageElement): Promise<void> {
+function applyExportMaterials(group: THREE.Object3D, texture: THREE.Texture) {
+  group.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) {
+      return;
+    }
+
+    const isOverlay = child.name !== 'Head';
+    child.material = new THREE.MeshStandardMaterial({
+      map: texture,
+      roughness: 0.6,
+      metalness: 0.1,
+      side: THREE.DoubleSide,
+      transparent: isOverlay,
+      alphaTest: isOverlay ? 0.1 : 0,
+    });
+    child.material.name = isOverlay ? 'OverlayMaterial' : 'HeadMaterial';
+  });
+}
+
+export function exportToFBXClassic(
+  skinImage: HTMLImageElement
+): Promise<void> {
   return new Promise((resolve, reject) => {
     try {
       // Prepare the skin texture as a 1024x1024 Nearest-Neighbor scaled data URL for embedding
@@ -133,4 +155,85 @@ export function exportToFBX(_input: THREE.Object3D, skinImage: HTMLImageElement)
       reject(error);
     }
   });
+}
+
+export function exportToFBXWithRelief(
+  skinImage: HTMLImageElement,
+  heightmap: any
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1024;
+      canvas.height = 1024;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('No se pudo crear el contexto 2D para la textura.'));
+        return;
+      }
+
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = 64;
+      tempCanvas.height = 64;
+      const tempCtx = tempCanvas.getContext('2d')!;
+      tempCtx.drawImage(skinImage, 0, 0, 64, 64, 0, 0, 64, 64);
+
+      const imgData = tempCtx.getImageData(0, 0, 64, 64);
+      const dilatedData = dilateTexture(imgData);
+      tempCtx.putImageData(dilatedData, 0, 0);
+
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(tempCanvas, 0, 0, 64, 64, 0, 0, 1024, 1024);
+      const skinDataUrl = canvas.toDataURL('image/png');
+
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const texture = new THREE.Texture(img);
+          texture.name = 'textura.png';
+          texture.minFilter = THREE.NearestFilter;
+          texture.magFilter = THREE.NearestFilter;
+          texture.generateMipmaps = false;
+          texture.colorSpace = THREE.SRGBColorSpace;
+          (texture as any).sourceFile = 'textura.png';
+          texture.needsUpdate = true;
+
+          const exportGroup = buildReliefExportGroup(skinImage, heightmap);
+          applyExportMaterials(exportGroup, texture);
+
+          const fbxBytes = exportFbx(exportGroup, {
+            format: 'binary',
+            target: 'blender',
+            embedTextures: true,
+            onWarning: (warning) => {
+              console.warn('[FBX Export Warning]', warning.message || warning.code);
+            },
+          });
+
+          downloadBinaryFile(fbxBytes, 'skinbridge_cabeza.fbx');
+          resolve();
+        } catch (exportError) {
+          reject(exportError);
+        }
+      };
+
+      img.onerror = () => {
+        reject(new Error('No se pudo cargar la imagen de la textura escalada.'));
+      };
+
+      img.src = skinDataUrl;
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+export function exportToFBX(
+  _input: THREE.Object3D,
+  skinImage: HTMLImageElement,
+  heightmap?: any
+): Promise<void> {
+  return heightmap
+    ? exportToFBXWithRelief(skinImage, heightmap)
+    : exportToFBXClassic(skinImage);
 }

@@ -212,7 +212,7 @@ function getSkinPixels(skinImage: HTMLImageElement | HTMLCanvasElement): ImageDa
   canvas.height = 64;
   const ctx = canvas.getContext('2d')!;
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(skinImage, 0, 0);
+  ctx.drawImage(skinImage, 0, 0, 64, 64);
   return ctx.getImageData(0, 0, 64, 64);
 }
 

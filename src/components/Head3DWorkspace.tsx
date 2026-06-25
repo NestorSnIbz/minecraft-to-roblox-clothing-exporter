@@ -4,10 +4,10 @@ import { useTranslation } from '../modules/i18n';
 import { Head } from 'vite-react-ssg';
 import { build3DHead } from '../modules/HeadBuilder';
 import { ThreeViewer } from '../modules/ThreeViewer';
-import { exportToGLB } from '../modules/GLBExporter';
-import { exportToBBModel } from '../modules/BBModelExporter';
-import { exportToOBJ } from '../modules/OBJExporter';
-import { exportToFBX } from '../modules/FBXExporter';
+import { exportToGLBClassic, exportToGLBWithRelief } from '../modules/GLBExporter';
+import { exportToBBModelClassic, exportToBBModelWithRelief } from '../modules/BBModelExporter';
+import { exportToOBJClassic, exportToOBJWithRelief } from '../modules/OBJExporter';
+import { exportToFBXClassic, exportToFBXWithRelief } from '../modules/FBXExporter';
 import { type ExtractedFaces } from '../modules/TextureExtractor';
 import { useShareHead3d } from '../hooks/useShareHead3d';
 
@@ -24,6 +24,119 @@ interface Head3DWorkspaceProps {
   showToast: (type: 'success' | 'error', message: string) => void;
   logExport: (format: string, filename: string) => void;
 }
+
+/**
+ * Minecraft skin face layout (pixel coordinates on a 64×64 sheet).
+ * baseX/Y = top-left of the base (inner) layer.
+ * overlayX/Y = top-left of the overlay (outer) layer.
+ */
+const FACE_LAYOUT = [
+  { key: 'right',  baseX: 16, baseY: 8,  overlayX: 48, overlayY: 8  },
+  { key: 'left',   baseX: 0,  baseY: 8,  overlayX: 32, overlayY: 8  },
+  { key: 'top',    baseX: 8,  baseY: 0,  overlayX: 40, overlayY: 0  },
+  { key: 'bottom', baseX: 16, baseY: 0,  overlayX: 48, overlayY: 0  },
+  { key: 'front',  baseX: 8,  baseY: 8,  overlayX: 40, overlayY: 8  },
+  { key: 'back',   baseX: 24, baseY: 8,  overlayX: 56, overlayY: 8  },
+] as const;
+
+/**
+ * Reads an 8×8 block of RGBA pixels from the skin image at (originX, originY).
+ * Assumes the image is 64×64 (or a multiple thereof).
+ */
+function readBlock(ctx: CanvasRenderingContext2D, originX: number, originY: number, scale: number)
+  : Uint8ClampedArray[] {
+  const rows: Uint8ClampedArray[] = [];
+  for (let r = 0; r < 8; r++) {
+    // Read one pixel per cell using the scaled coordinates
+    const rowData = new Uint8ClampedArray(8 * 4);
+    for (let c = 0; c < 8; c++) {
+      const px = Math.floor(originX * scale + c * scale);
+      const py = Math.floor(originY * scale + r * scale);
+      const d = ctx.getImageData(px, py, 1, 1).data;
+      rowData[c * 4]     = d[0];
+      rowData[c * 4 + 1] = d[1];
+      rowData[c * 4 + 2] = d[2];
+      rowData[c * 4 + 3] = d[3];
+    }
+    rows.push(rowData);
+  }
+  return rows;
+}
+
+
+
+/**
+ * Algorithmic heightmap generator.
+ *
+ * For each overlay pixel:
+ *   alpha < 10  → 0 (transparent / empty — no voxel)
+ *   alpha ≥ 10  → 1 (flush relief — same height as base, no gap)
+ *
+ * All opaque overlay pixels produce uniform flush relief.
+ * The Corner Alignment Pass below ensures seamless seams at the 4 vertical corners.
+ */
+function generateAlgorithmicHeightmap(skinImg: HTMLImageElement): HeightmapData {
+  // Draw the skin onto an off-screen canvas so we can read pixels
+  const canvas = document.createElement('canvas');
+  canvas.width  = skinImg.naturalWidth  || skinImg.width;
+  canvas.height = skinImg.naturalHeight || skinImg.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+  ctx.drawImage(skinImg, 0, 0);
+
+  // Native pixel scale (supports 64×64 and higher-res skins)
+  const scale = canvas.width / 64;
+
+  const ALPHA_THRESHOLD = 10;  // below this → transparent (no voxel)
+
+  const result: HeightmapData = {
+    offsets: {} as Record<string, number>,
+    right: [], left: [], top: [], bottom: [], front: [], back: [],
+  };
+
+  for (const faceDef of FACE_LAYOUT) {
+    // Only read overlay pixels — base layer no longer needed
+    const overlayRows = readBlock(ctx, faceDef.overlayX, faceDef.overlayY, scale);
+    result.offsets[faceDef.key] = 4.0;
+
+    const matrix: number[][] = [];
+    for (let r = 0; r < 8; r++) {
+      const row: number[] = [];
+      for (let c = 0; c < 8; c++) {
+        const alpha = overlayRows[r][c * 4 + 3];
+        // Opaque pixel → flush relief (1). Transparent → no voxel (0).
+        row.push(alpha >= ALPHA_THRESHOLD ? 1 : 0);
+      }
+      matrix.push(row);
+    }
+    (result as any)[faceDef.key] = matrix;
+  }
+
+  // ── Corner Alignment Pass ────────────────────────────────────────────────
+  // Guarantee perfect, hole-free 3D seams at the 4 vertical corners.
+  const fM = result.front, lM = result.left, rM = result.right, bM = result.back;
+  if (fM.length === 8 && lM.length === 8 && rM.length === 8 && bM.length === 8) {
+    for (let row = 0; row < 8; row++) {
+      const maxFL = Math.max(fM[row][0], lM[row][7]); fM[row][0] = maxFL; lM[row][7] = maxFL;
+      const maxFR = Math.max(fM[row][7], rM[row][0]); fM[row][7] = maxFR; rM[row][0] = maxFR;
+      const maxBR = Math.max(bM[row][0], rM[row][7]); bM[row][0] = maxBR; rM[row][7] = maxBR;
+      const maxBL = Math.max(bM[row][7], lM[row][0]); bM[row][7] = maxBL; lM[row][0] = maxBL;
+    }
+  }
+
+  return result;
+}
+
+interface HeightmapData {
+  message?: string;
+  offsets: Record<string, number>;
+  right: number[][];
+  left: number[][];
+  top: number[][];
+  bottom: number[][];
+  front: number[][];
+  back: number[][];
+}
+
 
 export default function Head3DWorkspace({
   skinImage,
@@ -58,6 +171,51 @@ export default function Head3DWorkspace({
   const [puzzleAnswer, setPuzzleAnswer] = useState('');
   const [captchaError, setCaptchaError] = useState(false);
 
+  // Voxel Relief States (algorithmic — no AI required)
+  const [heightmap, setHeightmap] = useState<HeightmapData | null>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('custom_heightmap');
+      if (saved) {
+        try { return JSON.parse(saved); } catch { return null; }
+      }
+    }
+    return null;
+  });
+  const [useRelief, setUseRelief] = useState<boolean>(false);
+  const [reliefLoading, setReliefLoading] = useState<boolean>(false);
+
+  const handleHeightmapChange = (map: HeightmapData | null) => {
+    setHeightmap(map);
+    if (typeof window !== 'undefined') {
+      if (map) {
+        localStorage.setItem('custom_heightmap', JSON.stringify(map));
+      } else {
+        localStorage.removeItem('custom_heightmap');
+      }
+    }
+  };
+
+  /** Generates the overlay heightmap using the deterministic pixel algorithm. */
+  const handleGenerateRelief = async () => {
+    if (!skinImage) {
+      showToast('error', t('toast_load_skin_first'));
+      return;
+    }
+    setReliefLoading(true);
+    try {
+      // Small async yield so the loading state renders before heavy pixel work
+      await new Promise(r => setTimeout(r, 20));
+      const map = generateAlgorithmicHeightmap(skinImage);
+      handleHeightmapChange(map);
+      setUseRelief(true);
+      showToast('success', t('toast_relief_success'));
+    } catch (err: any) {
+      console.error(err);
+      showToast('error', t('toast_relief_error', { error: err.message || err }));
+    } finally {
+      setReliefLoading(false);
+    }
+  };
 
   const generatePuzzle = () => {
     setPuzzleA(Math.floor(Math.random() * 8) + 2); // 2 to 9
@@ -146,6 +304,15 @@ export default function Head3DWorkspace({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<ThreeViewer | null>(null);
 
+  // Reset heightmap when a new skin is loaded
+  useEffect(() => {
+    setHeightmap(null);
+    setUseRelief(false);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('custom_heightmap');
+    }
+  }, [skinImage]);
+
   // Initialize and update the 3D Head viewer
   useEffect(() => {
     if (containerRef.current && !viewerRef.current) {
@@ -157,7 +324,8 @@ export default function Head3DWorkspace({
       viewerRef.current.autoRotate = autoRotate;
       viewerRef.current.setGridVisible(showGrid);
       if (skinImage) {
-        const headGroup = build3DHead(skinImage);
+        const activeHeightmap = useRelief && heightmap ? heightmap : undefined;
+        const headGroup = build3DHead(skinImage, activeHeightmap);
         viewerRef.current.setHeadModel(headGroup);
       }
     }
@@ -167,21 +335,19 @@ export default function Head3DWorkspace({
         viewerRef.current = null;
       }
     };
-  }, [skinImage, autoRotate, showGrid]);
+  }, [skinImage, autoRotate, showGrid, useRelief, heightmap]);
 
   const handleExportOBJ = async () => {
-    if (!viewerRef.current) return;
-    const headModel = viewerRef.current.getHeadModel();
-    if (!headModel) {
-      showToast('error', t('toast_no_3d_model'));
-      return;
-    }
     if (!skinImage) {
       showToast('error', t('toast_load_skin_first'));
       return;
     }
     try {
-      await exportToOBJ(headModel, skinImage);
+      if (useRelief && heightmap) {
+        await exportToOBJWithRelief(skinImage, heightmap);
+      } else {
+        await exportToOBJClassic(skinImage);
+      }
       showToast('success', t('toast_obj_success'));
       logExport('OBJ', 'skinbridge_cabeza.obj');
     } catch (err: any) {
@@ -190,18 +356,16 @@ export default function Head3DWorkspace({
   };
 
   const handleExportFBX = async () => {
-    if (!viewerRef.current) return;
-    const headModel = viewerRef.current.getHeadModel();
-    if (!headModel) {
-      showToast('error', t('toast_no_3d_model'));
-      return;
-    }
     if (!skinImage) {
       showToast('error', t('toast_load_skin_first'));
       return;
     }
     try {
-      await exportToFBX(headModel, skinImage);
+      if (useRelief && heightmap) {
+        await exportToFBXWithRelief(skinImage, heightmap);
+      } else {
+        await exportToFBXClassic(skinImage);
+      }
       showToast('success', t('toast_fbx_success'));
       logExport('FBX', 'skinbridge_cabeza.fbx');
     } catch (err: any) {
@@ -218,7 +382,11 @@ export default function Head3DWorkspace({
     }
 
     try {
-      await exportToGLB(headModel);
+      if (skinImage && useRelief && heightmap) {
+        await exportToGLBWithRelief(skinImage, heightmap);
+      } else {
+        await exportToGLBClassic(headModel, skinImage || undefined);
+      }
       showToast('success', t('toast_glb_success'));
       logExport('GLB', 'skinbridge_cabeza.glb');
     } catch (err: any) {
@@ -233,7 +401,11 @@ export default function Head3DWorkspace({
     }
 
     try {
-      exportToBBModel(skinImage);
+      if (useRelief && heightmap) {
+        exportToBBModelWithRelief(skinImage, heightmap);
+      } else {
+        exportToBBModelClassic(skinImage);
+      }
       showToast('success', t('toast_bbmodel_success'));
       logExport('BBMODEL', 'skinbridge_cabeza.bbmodel');
     } catch (err: any) {
@@ -327,6 +499,81 @@ export default function Head3DWorkspace({
             </div>
           )}
         </div>
+
+        {/* 3D Voxel Relief Section */}
+        {skinImage && (
+          <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            
+            {/* Relief description */}
+            <p style={{ margin: 0, fontSize: '0.75rem', color: '#a1a1aa', lineHeight: '1.4' }}>
+              {t('relief_description')}
+            </p>
+
+            {/* Generate button */}
+            <button
+              className="glow-btn"
+              onClick={handleGenerateRelief}
+              disabled={reliefLoading}
+              style={{ padding: '8px 12px', fontSize: '0.8rem', fontWeight: 600, width: '100%', justifyContent: 'center' }}
+            >
+              {reliefLoading ? t('btn_generating_relief') : t('btn_generate_relief')}
+            </button>
+
+            {/* Toggle relief on/off after generation */}
+            {heightmap && (
+              <label className="toggle-container" style={{ marginTop: '4px' }}>
+                <input
+                  type="checkbox"
+                  checked={useRelief}
+                  onChange={(e) => setUseRelief(e.target.checked)}
+                  style={{ display: 'none' }}
+                />
+                <span className="checkbox-custom"></span>
+                <span style={{ fontSize: '0.8rem' }}>{t('toggle_relief_label')}</span>
+              </label>
+            )}
+
+            {/* Per-face flush/floating indicators */}
+            {heightmap && useRelief && heightmap.offsets && (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: '6px',
+                padding: '10px',
+                borderRadius: '6px',
+                backgroundColor: 'rgba(0,0,0,0.2)',
+                border: '1px solid rgba(255,255,255,0.05)',
+              }}>
+                {Object.entries(heightmap.offsets).map(([face, val]) => {
+                  const faceMatrix = (heightmap as any)[face] as number[][] | undefined;
+                  const hasFloating = faceMatrix ? faceMatrix.some(row => row.some((v: number) => v === 3)) : false;
+                  const isFloating = (val as number) > 4.0 || hasFloating;
+                  return (
+                    <div key={face} style={{
+                      padding: '4px 6px', borderRadius: '4px',
+                      backgroundColor: 'rgba(255,255,255,0.02)',
+                      border: '1px solid rgba(255,255,255,0.05)',
+                      fontSize: '0.7rem', color: '#a1a1aa',
+                      display: 'flex', flexDirection: 'column',
+                      alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <span style={{ textTransform: 'capitalize', fontWeight: 'bold', color: '#e4e4e7', marginBottom: '2px' }}>
+                        {t(`face_${face}`) || face}
+                      </span>
+                      <span style={{ color: isFloating ? '#38bdf8' : '#a1a1aa', fontWeight: isFloating ? 'bold' : 'normal' }}>
+                        {isFloating ? t('offset_gap') : t('offset_flush')}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <p style={{ margin: 0, fontSize: '0.7rem', color: '#71717a', lineHeight: '1.3' }}>
+              {t('relief_export_note')}
+            </p>
+          </div>
+        )}
       </section>
 
       {/* Right Side: Interactive 3D Viewer & Exporters */}
