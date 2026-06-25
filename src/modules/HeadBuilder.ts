@@ -480,7 +480,7 @@ export function buildVoxelizedOverlayWithRelief(
     // ① Top row=7 ↔ Front row=0  (top-front edge, +y/+z)
     // boundaries: param=7(right side)→check right[0][0]; param=0(left side)→check left[0][7]
     { id: 'top-front', faceA: 'top', faceB: 'front',
-      isEdgeA: (r, c) => r === 7,   paramFromA: (_r, c) => c,
+      isEdgeA: (r, _c) => r === 7,   paramFromA: (_r, c) => c,
       rowBfromP: (_p) => 0,          colBfromP: (p) => p,
       isEdgeB: (r, _c) => r === 0,  paramFromB: (_r, c) => c,
       rowAfromP: (_p) => 7,          colAfromP: (p) => p,
@@ -758,7 +758,6 @@ export function buildVoxelizedOverlayWithRelief(
   // overlay at the corner pixel, place a THICKNESS³ cube at the exact corner.
   // This fills the gap left by the 3 clipped caps (each of which now stops
   // exactly at the ±4.0 boundary on its clipped axis).
-  const TRI_OFS = 4.0 + THICKNESS / 2;  // = 4.175
   const triCorners = [
     // front-top-right
     { f1: 'front', r1: 0, c1: 7, f2: 'right', r2: 0, c2: 0, f3: 'top', r3: 7, c3: 7,

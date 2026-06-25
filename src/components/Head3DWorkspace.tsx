@@ -4,10 +4,10 @@ import { useTranslation } from '../modules/i18n';
 import { Head } from 'vite-react-ssg';
 import { build3DHead } from '../modules/HeadBuilder';
 import { ThreeViewer } from '../modules/ThreeViewer';
-import { exportToGLB } from '../modules/GLBExporter';
-import { exportToBBModel } from '../modules/BBModelExporter';
-import { exportToOBJ } from '../modules/OBJExporter';
-import { exportToFBX } from '../modules/FBXExporter';
+import { exportToGLBClassic, exportToGLBWithRelief } from '../modules/GLBExporter';
+import { exportToBBModelClassic, exportToBBModelWithRelief } from '../modules/BBModelExporter';
+import { exportToOBJClassic, exportToOBJWithRelief } from '../modules/OBJExporter';
+import { exportToFBXClassic, exportToFBXWithRelief } from '../modules/FBXExporter';
 import { type ExtractedFaces } from '../modules/TextureExtractor';
 import { useShareHead3d } from '../hooks/useShareHead3d';
 
@@ -126,85 +126,6 @@ function generateAlgorithmicHeightmap(skinImg: HTMLImageElement): HeightmapData 
   return result;
 }
 
-// Keep the HeightmapData type for compatibility with HeadBuilder
-function generateAIInputImage(skinImg: HTMLImageElement): string {
-  const canvas = document.createElement('canvas');
-  canvas.width = 720;
-  canvas.height = 480;
-  const ctx = canvas.getContext('2d')!;
-
-  // Fill dark background
-  ctx.fillStyle = '#1e1e2e';
-  ctx.fillRect(0, 0, 720, 480);
-
-  // Face definitions based on Minecraft skin layout coordinates
-  const faces = [
-    { key: 'right',  name: 'RIGHT FACE',  baseX: 16, baseY: 8, overlayX: 48, overlayY: 8, gridX: 0, gridY: 0 },
-    { key: 'left',   name: 'LEFT FACE',   baseX: 0,  baseY: 8, overlayX: 32, overlayY: 8, gridX: 1, gridY: 0 },
-    { key: 'top',    name: 'TOP FACE',    baseX: 8,  baseY: 0, overlayX: 40, overlayY: 0, gridX: 2, gridY: 0 },
-    { key: 'bottom', name: 'BOTTOM FACE', baseX: 16, baseY: 0, overlayX: 48, overlayY: 0, gridX: 0, gridY: 1 },
-    { key: 'front',  name: 'FRONT FACE',  baseX: 8,  baseY: 8, overlayX: 40, overlayY: 8, gridX: 1, gridY: 1 },
-    { key: 'back',   name: 'BACK FACE',   baseX: 24, baseY: 8, overlayX: 56, overlayY: 8, gridX: 2, gridY: 1 }
-  ];
-
-  ctx.imageSmoothingEnabled = false;
-
-  faces.forEach((f) => {
-    const startX = f.gridX * 240;
-    const startY = f.gridY * 240;
-
-    // Draw Face Name
-    ctx.fillStyle = '#f5c2e7';
-    ctx.font = 'bold 16px sans-serif';
-    ctx.fillText(f.name, startX + 20, startY + 30);
-
-    // Draw Labels
-    ctx.fillStyle = '#a6adc8';
-    ctx.font = '12px sans-serif';
-    ctx.fillText('Base', startX + 20, startY + 50);
-    ctx.fillText('Overlay', startX + 130, startY + 50);
-
-    const scale = skinImg.naturalWidth ? (skinImg.naturalWidth / 64) : (skinImg.width / 64 || 1);
-
-    // Draw Base Head Face (8x8 * scale) scaled to 80x80
-    ctx.drawImage(
-      skinImg,
-      f.baseX * scale,
-      f.baseY * scale,
-      8 * scale,
-      8 * scale,
-      startX + 20,
-      startY + 60,
-      80,
-      80
-    );
-
-    // Draw Overlay Face (8x8 * scale) scaled to 80x80
-    ctx.drawImage(
-      skinImg,
-      f.overlayX * scale,
-      f.overlayY * scale,
-      8 * scale,
-      8 * scale,
-      startX + 130,
-      startY + 60,
-      80,
-      80
-    );
-
-    // Draw border around the faces
-    ctx.strokeStyle = '#45475a';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(startX + 20, startY + 60, 80, 80);
-    ctx.strokeRect(startX + 130, startY + 60, 80, 80);
-  });
-
-  // (legacy — kept so TypeScript doesn't error on the removed call-site below)
-  const dataUrl = canvas.toDataURL('image/png');
-  return dataUrl.split(',')[1];
-}
-
-
 interface HeightmapData {
   message?: string;
   offsets: Record<string, number>;
@@ -294,11 +215,6 @@ export default function Head3DWorkspace({
     } finally {
       setReliefLoading(false);
     }
-  };
-
-  // (removed: handleAdjustAIRelief — AI chat adjustment no longer needed)
-  const _unused_handleAdjustAIRelief = async () => {
-    // body removed — function is no longer used
   };
 
   const generatePuzzle = () => {
@@ -422,18 +338,16 @@ export default function Head3DWorkspace({
   }, [skinImage, autoRotate, showGrid, useRelief, heightmap]);
 
   const handleExportOBJ = async () => {
-    if (!viewerRef.current) return;
-    const headModel = viewerRef.current.getHeadModel();
-    if (!headModel) {
-      showToast('error', t('toast_no_3d_model'));
-      return;
-    }
     if (!skinImage) {
       showToast('error', t('toast_load_skin_first'));
       return;
     }
     try {
-      await exportToOBJ(headModel, skinImage, useRelief && heightmap ? heightmap : undefined);
+      if (useRelief && heightmap) {
+        await exportToOBJWithRelief(skinImage, heightmap);
+      } else {
+        await exportToOBJClassic(skinImage);
+      }
       showToast('success', t('toast_obj_success'));
       logExport('OBJ', 'skinbridge_cabeza.obj');
     } catch (err: any) {
@@ -442,18 +356,16 @@ export default function Head3DWorkspace({
   };
 
   const handleExportFBX = async () => {
-    if (!viewerRef.current) return;
-    const headModel = viewerRef.current.getHeadModel();
-    if (!headModel) {
-      showToast('error', t('toast_no_3d_model'));
-      return;
-    }
     if (!skinImage) {
       showToast('error', t('toast_load_skin_first'));
       return;
     }
     try {
-      await exportToFBX(headModel, skinImage, useRelief && heightmap ? heightmap : undefined);
+      if (useRelief && heightmap) {
+        await exportToFBXWithRelief(skinImage, heightmap);
+      } else {
+        await exportToFBXClassic(skinImage);
+      }
       showToast('success', t('toast_fbx_success'));
       logExport('FBX', 'skinbridge_cabeza.fbx');
     } catch (err: any) {
@@ -470,7 +382,11 @@ export default function Head3DWorkspace({
     }
 
     try {
-      await exportToGLB(headModel, skinImage || undefined, useRelief && heightmap ? heightmap : undefined);
+      if (skinImage && useRelief && heightmap) {
+        await exportToGLBWithRelief(skinImage, heightmap);
+      } else {
+        await exportToGLBClassic(headModel, skinImage || undefined);
+      }
       showToast('success', t('toast_glb_success'));
       logExport('GLB', 'skinbridge_cabeza.glb');
     } catch (err: any) {
@@ -485,7 +401,11 @@ export default function Head3DWorkspace({
     }
 
     try {
-      exportToBBModel(skinImage);
+      if (useRelief && heightmap) {
+        exportToBBModelWithRelief(skinImage, heightmap);
+      } else {
+        exportToBBModelClassic(skinImage);
+      }
       showToast('success', t('toast_bbmodel_success'));
       logExport('BBMODEL', 'skinbridge_cabeza.bbmodel');
     } catch (err: any) {
