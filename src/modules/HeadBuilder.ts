@@ -480,9 +480,9 @@ export function buildVoxelizedOverlayWithRelief(
     // ① Top row=7 ↔ Front row=0  (top-front edge, +y/+z)
     // boundaries: param=7(right side)→check right[0][0]; param=0(left side)→check left[0][7]
     { id: 'top-front', faceA: 'top', faceB: 'front',
-      isEdgeA: (r, _c) => r === 7,   paramFromA: (_r, c) => c,
+      isEdgeA: (r, _unusedC) => r === 7,   paramFromA: (_unusedR, c) => c,
       rowBfromP: (_p) => 0,          colBfromP: (p) => p,
-      isEdgeB: (r, _c) => r === 0,  paramFromB: (_r, c) => c,
+      isEdgeB: (r, _unusedC) => r === 0,  paramFromB: (_unusedR, c) => c,
       rowAfromP: (_p) => 7,          colAfromP: (p) => p,
       clipADim: 'h', clipAPos: (p) => ({ ...p, z: p.z + CORNER_SHIFT }),  // top h→z, clip z toward −
       clipBDim: 'h', clipBPos: (p) => ({ ...p, y: p.y + CORNER_SHIFT }),  // front h→y, clip y toward −
@@ -498,9 +498,9 @@ export function buildVoxelizedOverlayWithRelief(
     // Top row=0 → z = −3.9375 (back edge). Back row=0 → y = +3.9375 (top edge).
     // Top col=c ↔ Back col=7−c  (mirrored x)
     { id: 'top-back', faceA: 'top', faceB: 'back',
-      isEdgeA: (r, _c) => r === 0, paramFromA: (_r, c) => c,
+      isEdgeA: (r, _unusedC) => r === 0, paramFromA: (_unusedR, c) => c,
       rowBfromP: (_p) => 0,         colBfromP: (p) => 7 - p,
-      isEdgeB: (r, _c) => r === 0, paramFromB: (_r, c) => 7 - c,
+      isEdgeB: (r, _unusedC) => r === 0, paramFromB: (_unusedR, c) => 7 - c,
       rowAfromP: (_p) => 0,         colAfromP: (p) => p,
       clipADim: 'h', clipAPos: (p) => ({ ...p, z: p.z - CORNER_SHIFT }),  // z=−3.9375, clip toward +z → shift +0.25
       clipBDim: 'h', clipBPos: (p) => ({ ...p, y: p.y + CORNER_SHIFT }),  // y=+3.9375, clip toward −y
@@ -516,9 +516,9 @@ export function buildVoxelizedOverlayWithRelief(
     // Top col=7 → x=+3.9375. Right row=0 → y=+3.9375.
     // Top row=r ↔ Right col=7−r  (z matches: −3.9375+r·ps = 3.9375−(7−r)·ps ✓)
     { id: 'top-right', faceA: 'top', faceB: 'right',
-      isEdgeA: (_r, c) => c === 7, paramFromA: (r, _c) => r,
+      isEdgeA: (_unusedR, c) => c === 7, paramFromA: (r, _unusedC) => r,
       rowBfromP: (_p) => 0,         colBfromP: (p) => 7 - p,
-      isEdgeB: (r, _c) => r === 0, paramFromB: (_r, c) => 7 - c,
+      isEdgeB: (r, _unusedC) => r === 0, paramFromB: (_unusedR, c) => 7 - c,
       rowAfromP: (p) => p,           colAfromP: (_p) => 7,
       clipADim: 'w', clipAPos: (p) => ({ ...p, x: p.x + CORNER_SHIFT }),  // top w→x, x=+3.9375, clip toward −x
       clipBDim: 'h', clipBPos: (p) => ({ ...p, y: p.y + CORNER_SHIFT }),  // right h→y
@@ -534,9 +534,9 @@ export function buildVoxelizedOverlayWithRelief(
     // Top col=0 → x=−3.9375. Left row=0 → y=+3.9375.
     // Top row=r ↔ Left col=r  (z matches: −3.9375+r·ps = −3.9375+r·ps ✓)
     { id: 'top-left', faceA: 'top', faceB: 'left',
-      isEdgeA: (_r, c) => c === 0, paramFromA: (r, _c) => r,
+      isEdgeA: (_unusedR, c) => c === 0, paramFromA: (r, _unusedC) => r,
       rowBfromP: (_p) => 0,         colBfromP: (p) => p,
-      isEdgeB: (r, _c) => r === 0, paramFromB: (_r, c) => c,
+      isEdgeB: (r, _unusedC) => r === 0, paramFromB: (_unusedR, c) => c,
       rowAfromP: (p) => p,           colAfromP: (_p) => 0,
       clipADim: 'w', clipAPos: (p) => ({ ...p, x: p.x - CORNER_SHIFT }),  // x=−3.9375, clip toward +x → shift +0.25
       clipBDim: 'h', clipBPos: (p) => ({ ...p, y: p.y + CORNER_SHIFT }),
@@ -552,9 +552,9 @@ export function buildVoxelizedOverlayWithRelief(
     // Bottom row=7 → z=+3.9375. Front row=7 → y=−3.9375.
     // Bottom col=7−c ↔ Front col=c  (x matches: 3.9375−(7−c)·ps = −3.9375+c·ps ✓)
     { id: 'bottom-front', faceA: 'bottom', faceB: 'front',
-      isEdgeA: (r, _c) => r === 7, paramFromA: (_r, c) => 7 - c,
+      isEdgeA: (r, _unusedC) => r === 7, paramFromA: (_unusedR, c) => 7 - c,
       rowBfromP: (_p) => 7,         colBfromP: (p) => p,
-      isEdgeB: (r, _c) => r === 7, paramFromB: (_r, c) => c,
+      isEdgeB: (r, _unusedC) => r === 7, paramFromB: (_unusedR, c) => c,
       rowAfromP: (_p) => 7,         colAfromP: (p) => 7 - p,
       clipADim: 'h', clipAPos: (p) => ({ ...p, z: p.z + CORNER_SHIFT }),  // z=+3.9375, clip toward −z
       clipBDim: 'h', clipBPos: (p) => ({ ...p, y: p.y - CORNER_SHIFT }),  // y=−3.9375, clip toward +y → shift +0.25
@@ -570,9 +570,9 @@ export function buildVoxelizedOverlayWithRelief(
     // Bottom row=0 → z=−3.9375. Back row=7 → y=−3.9375.
     // Bottom col=c ↔ Back col=c  (x: 3.9375−c·ps = 3.9375−c·ps ✓)
     { id: 'bottom-back', faceA: 'bottom', faceB: 'back',
-      isEdgeA: (r, _c) => r === 0, paramFromA: (_r, c) => c,
+      isEdgeA: (r, _unusedC) => r === 0, paramFromA: (_unusedR, c) => c,
       rowBfromP: (_p) => 7,         colBfromP: (p) => p,
-      isEdgeB: (r, _c) => r === 7, paramFromB: (_r, c) => c,
+      isEdgeB: (r, _unusedC) => r === 7, paramFromB: (_unusedR, c) => c,
       rowAfromP: (_p) => 0,         colAfromP: (p) => p,
       clipADim: 'h', clipAPos: (p) => ({ ...p, z: p.z - CORNER_SHIFT }),  // z=−3.9375, clip toward +z
       clipBDim: 'h', clipBPos: (p) => ({ ...p, y: p.y - CORNER_SHIFT }),  // y=−3.9375, clip toward +y
@@ -588,9 +588,9 @@ export function buildVoxelizedOverlayWithRelief(
     // Bottom col=0 → x=+3.9375. Right row=7 → y=−3.9375.
     // Bottom row=r ↔ Right col=7−r  (z: −3.9375+r·ps = 3.9375−(7−r)·ps ✓)
     { id: 'bottom-right', faceA: 'bottom', faceB: 'right',
-      isEdgeA: (_r, c) => c === 0, paramFromA: (r, _c) => r,
+      isEdgeA: (_unusedR, c) => c === 0, paramFromA: (r, _unusedC) => r,
       rowBfromP: (_p) => 7,         colBfromP: (p) => 7 - p,
-      isEdgeB: (r, _c) => r === 7, paramFromB: (_r, c) => 7 - c,
+      isEdgeB: (r, _unusedC) => r === 7, paramFromB: (_unusedR, c) => 7 - c,
       rowAfromP: (p) => p,           colAfromP: (_p) => 0,
       clipADim: 'w', clipAPos: (p) => ({ ...p, x: p.x + CORNER_SHIFT }),  // x=+3.9375, clip toward −x
       clipBDim: 'h', clipBPos: (p) => ({ ...p, y: p.y - CORNER_SHIFT }),
@@ -606,9 +606,9 @@ export function buildVoxelizedOverlayWithRelief(
     // Bottom col=7 → x=−3.9375. Left row=7 → y=−3.9375.
     // Bottom row=r ↔ Left col=r  (z: −3.9375+r·ps = −3.9375+r·ps ✓)
     { id: 'bottom-left', faceA: 'bottom', faceB: 'left',
-      isEdgeA: (_r, c) => c === 7, paramFromA: (r, _c) => r,
+      isEdgeA: (_unusedR, c) => c === 7, paramFromA: (r, _unusedC) => r,
       rowBfromP: (_p) => 7,         colBfromP: (p) => p,
-      isEdgeB: (r, _c) => r === 7, paramFromB: (_r, c) => c,
+      isEdgeB: (r, _unusedC) => r === 7, paramFromB: (_unusedR, c) => c,
       rowAfromP: (p) => p,           colAfromP: (_p) => 7,
       clipADim: 'w', clipAPos: (p) => ({ ...p, x: p.x - CORNER_SHIFT }),  // x=−3.9375, clip toward +x
       clipBDim: 'h', clipBPos: (p) => ({ ...p, y: p.y - CORNER_SHIFT }),
