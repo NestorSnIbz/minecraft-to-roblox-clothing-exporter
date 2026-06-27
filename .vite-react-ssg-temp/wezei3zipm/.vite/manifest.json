@@ -1,0 +1,89 @@
+{
+  "_OBJExporter-CRki0nkQ.js": {
+    "file": "assets/OBJExporter-CRki0nkQ.js",
+    "name": "OBJExporter"
+  },
+  "_ThreeViewer-CRwfpc2W.js": {
+    "file": "assets/ThreeViewer-CRwfpc2W.js",
+    "name": "ThreeViewer"
+  },
+  "_rateLimit-BgQdUSFi.js": {
+    "file": "assets/rateLimit-BgQdUSFi.js",
+    "name": "rateLimit"
+  },
+  "src/components/BlockbenchWorkspace.tsx": {
+    "file": "assets/BlockbenchWorkspace-C2EVoG7k.js",
+    "name": "BlockbenchWorkspace",
+    "src": "src/components/BlockbenchWorkspace.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "src/main.tsx",
+      "_OBJExporter-CRki0nkQ.js",
+      "_ThreeViewer-CRwfpc2W.js"
+    ]
+  },
+  "src/components/Head3DWorkspace.tsx": {
+    "file": "assets/Head3DWorkspace-D7fw2smj.js",
+    "name": "Head3DWorkspace",
+    "src": "src/components/Head3DWorkspace.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "src/main.tsx",
+      "_rateLimit-BgQdUSFi.js",
+      "_OBJExporter-CRki0nkQ.js",
+      "_ThreeViewer-CRwfpc2W.js"
+    ]
+  },
+  "src/components/RobloxWorkspace.tsx": {
+    "file": "assets/RobloxWorkspace-BrAf5j-v.js",
+    "name": "RobloxWorkspace",
+    "src": "src/components/RobloxWorkspace.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "src/main.tsx",
+      "_rateLimit-BgQdUSFi.js",
+      "_ThreeViewer-CRwfpc2W.js"
+    ]
+  },
+  "src/main.tsx": {
+    "file": "main.mjs",
+    "name": "main",
+    "src": "src/main.tsx",
+    "isEntry": true,
+    "dynamicImports": [
+      "src/components/Head3DWorkspace.tsx",
+      "src/components/RobloxWorkspace.tsx",
+      "src/components/BlockbenchWorkspace.tsx",
+      "src/pages/ShareRobloxPage.tsx",
+      "src/pages/ShareHead3dPage.tsx",
+      "src/pages/GalleryPage.tsx"
+    ]
+  },
+  "src/pages/GalleryPage.tsx": {
+    "file": "assets/GalleryPage-BtDG_Qtq.js",
+    "name": "GalleryPage",
+    "src": "src/pages/GalleryPage.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "src/main.tsx"
+    ]
+  },
+  "src/pages/ShareHead3dPage.tsx": {
+    "file": "assets/ShareHead3dPage-BARK7EG4.js",
+    "name": "ShareHead3dPage",
+    "src": "src/pages/ShareHead3dPage.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "src/main.tsx"
+    ]
+  },
+  "src/pages/ShareRobloxPage.tsx": {
+    "file": "assets/ShareRobloxPage-BqrZsEK_.js",
+    "name": "ShareRobloxPage",
+    "src": "src/pages/ShareRobloxPage.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "src/main.tsx"
+    ]
+  }
+}

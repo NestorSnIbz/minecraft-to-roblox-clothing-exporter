@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
-import { buildBaseHead, buildVoxelizedOverlay, dilateTexture } from './OBJExporter';
-import { buildVoxelizedOverlayWithRelief } from './HeadBuilder';
+import { buildBaseHead, buildVoxelizedOverlay, buildReliefExportGroup, dilateTexture } from './OBJExporter';
 
 /**
  * Downloads a Blob file in the browser.
@@ -197,18 +196,7 @@ function buildReliefGlbExportGroup(
   skinImage: HTMLImageElement,
   heightmap: any
 ): THREE.Group {
-  const exportGroup = new THREE.Group();
-  exportGroup.name = 'MinecraftHead';
-
-  const voxelizedHead = buildBaseHead(skinImage);
-  voxelizedHead.name = 'HeadVoxelizedReliefGLB';
-  exportGroup.add(voxelizedHead);
-
-  const reliefOverlay = buildVoxelizedOverlayWithRelief(skinImage, heightmap);
-  reliefOverlay.name = 'HeadOverlayReliefGLB';
-  exportGroup.add(reliefOverlay);
-
-  return exportGroup;
+  return buildReliefExportGroup(skinImage, heightmap);
 }
 
 function applyReliefGlbMaterials(group: THREE.Object3D, texture: THREE.Texture) {

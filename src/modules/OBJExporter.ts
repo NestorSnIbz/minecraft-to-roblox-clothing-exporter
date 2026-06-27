@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OBJExporter as ThreeOBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
-import { buildVoxelizedOverlayWithRelief } from './HeadBuilder';
+import { buildVoxelizedOverlayWithReliefForExport } from './HeadBuilder';
 
 /**
  * Downloads text content as a file in the browser.
@@ -214,6 +214,87 @@ function mergeBufferGeometries(geometries: THREE.BufferGeometry[]): THREE.Buffer
   mergedGeom.setIndex(new THREE.BufferAttribute(indices, 1));
 
   return mergedGeom;
+}
+
+function removeExactDuplicateTriangles(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
+  const positionAttr = geometry.getAttribute('position');
+  const normalAttr = geometry.getAttribute('normal');
+  const uvAttr = geometry.getAttribute('uv');
+
+  if (
+    !(positionAttr instanceof THREE.BufferAttribute) ||
+    !(normalAttr instanceof THREE.BufferAttribute) ||
+    !(uvAttr instanceof THREE.BufferAttribute)
+  ) {
+    return geometry;
+  }
+
+  const triangleCount = Math.floor(positionAttr.count / 3);
+  const triangleGroups = new Map<string, number[]>();
+
+  const vertexKey = (vertexIndex: number) =>
+    `${positionAttr.getX(vertexIndex).toFixed(5)},${positionAttr.getY(vertexIndex).toFixed(5)},${positionAttr.getZ(vertexIndex).toFixed(5)}`;
+
+  for (let tri = 0; tri < triangleCount; tri++) {
+    const start = tri * 3;
+    const key = [vertexKey(start), vertexKey(start + 1), vertexKey(start + 2)]
+      .sort()
+      .join('|');
+
+    const bucket = triangleGroups.get(key);
+    if (bucket) {
+      bucket.push(tri);
+    } else {
+      triangleGroups.set(key, [tri]);
+    }
+  }
+
+  const trianglesToKeep: number[] = [];
+  for (const tris of triangleGroups.values()) {
+    if (tris.length === 1) {
+      trianglesToKeep.push(tris[0]);
+    }
+  }
+
+  if (trianglesToKeep.length === triangleCount) {
+    return geometry;
+  }
+
+  const nextPositions = new Float32Array(trianglesToKeep.length * 9);
+  const nextNormals = new Float32Array(trianglesToKeep.length * 9);
+  const nextUvs = new Float32Array(trianglesToKeep.length * 6);
+
+  trianglesToKeep.forEach((tri, outTri) => {
+    for (let corner = 0; corner < 3; corner++) {
+      const srcVertex = tri * 3 + corner;
+      const dstVertex = outTri * 3 + corner;
+
+      nextPositions[dstVertex * 3] = positionAttr.getX(srcVertex);
+      nextPositions[dstVertex * 3 + 1] = positionAttr.getY(srcVertex);
+      nextPositions[dstVertex * 3 + 2] = positionAttr.getZ(srcVertex);
+
+      nextNormals[dstVertex * 3] = normalAttr.getX(srcVertex);
+      nextNormals[dstVertex * 3 + 1] = normalAttr.getY(srcVertex);
+      nextNormals[dstVertex * 3 + 2] = normalAttr.getZ(srcVertex);
+
+      nextUvs[dstVertex * 2] = uvAttr.getX(srcVertex);
+      nextUvs[dstVertex * 2 + 1] = uvAttr.getY(srcVertex);
+    }
+  });
+
+  const cleaned = new THREE.BufferGeometry();
+  cleaned.setAttribute('position', new THREE.BufferAttribute(nextPositions, 3));
+  cleaned.setAttribute('normal', new THREE.BufferAttribute(nextNormals, 3));
+  cleaned.setAttribute('uv', new THREE.BufferAttribute(nextUvs, 2));
+
+  const nextIndices = new Uint32Array(trianglesToKeep.length * 3);
+  for (let i = 0; i < nextIndices.length; i++) {
+    nextIndices[i] = i;
+  }
+  cleaned.setIndex(new THREE.BufferAttribute(nextIndices, 1));
+
+  geometry.dispose();
+  return cleaned;
 }
 
 /**
@@ -638,7 +719,7 @@ export function buildVoxelizedOverlay(
   });
 
   if (geometries.length > 0) {
-    const mergedGeom = mergeBufferGeometries(geometries);
+    const mergedGeom = removeExactDuplicateTriangles(mergeBufferGeometries(geometries));
     
     // Dispose of all temporary geometries
     geometries.forEach((g) => g.dispose());
@@ -683,7 +764,7 @@ export function buildReliefExportGroup(
   });
   exportGroup.add(voxelizedHead);
 
-  const reliefOverlay = buildVoxelizedOverlayWithRelief(skinImage, heightmap);
+  const reliefOverlay = buildVoxelizedOverlayWithReliefForExport(skinImage, heightmap);
   reliefOverlay.traverse((child) => {
     if (child instanceof THREE.Mesh && child.material) {
       child.material.name = 'OverlayMaterial';

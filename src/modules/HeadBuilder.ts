@@ -257,12 +257,94 @@ function mergeBufferGeometries(geometries: THREE.BufferGeometry[]): THREE.Buffer
   return mergedGeom;
 }
 
+function removeExactDuplicateTriangles(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
+  const positionAttr = geometry.getAttribute('position');
+  const normalAttr = geometry.getAttribute('normal');
+  const uvAttr = geometry.getAttribute('uv');
+
+  if (
+    !(positionAttr instanceof THREE.BufferAttribute) ||
+    !(normalAttr instanceof THREE.BufferAttribute) ||
+    !(uvAttr instanceof THREE.BufferAttribute)
+  ) {
+    return geometry;
+  }
+
+  const triangleCount = Math.floor(positionAttr.count / 3);
+  const triangleGroups = new Map<string, number[]>();
+
+  const vertexKey = (vertexIndex: number) =>
+    `${positionAttr.getX(vertexIndex).toFixed(5)},${positionAttr.getY(vertexIndex).toFixed(5)},${positionAttr.getZ(vertexIndex).toFixed(5)}`;
+
+  for (let tri = 0; tri < triangleCount; tri++) {
+    const start = tri * 3;
+    const key = [vertexKey(start), vertexKey(start + 1), vertexKey(start + 2)]
+      .sort()
+      .join('|');
+
+    const bucket = triangleGroups.get(key);
+    if (bucket) {
+      bucket.push(tri);
+    } else {
+      triangleGroups.set(key, [tri]);
+    }
+  }
+
+  const trianglesToKeep: number[] = [];
+  for (const tris of triangleGroups.values()) {
+    if (tris.length === 1) {
+      trianglesToKeep.push(tris[0]);
+    }
+  }
+
+  if (trianglesToKeep.length === triangleCount) {
+    return geometry;
+  }
+
+  const nextPositions = new Float32Array(trianglesToKeep.length * 9);
+  const nextNormals = new Float32Array(trianglesToKeep.length * 9);
+  const nextUvs = new Float32Array(trianglesToKeep.length * 6);
+
+  trianglesToKeep.forEach((tri, outTri) => {
+    for (let corner = 0; corner < 3; corner++) {
+      const srcVertex = tri * 3 + corner;
+      const dstVertex = outTri * 3 + corner;
+
+      nextPositions[dstVertex * 3] = positionAttr.getX(srcVertex);
+      nextPositions[dstVertex * 3 + 1] = positionAttr.getY(srcVertex);
+      nextPositions[dstVertex * 3 + 2] = positionAttr.getZ(srcVertex);
+
+      nextNormals[dstVertex * 3] = normalAttr.getX(srcVertex);
+      nextNormals[dstVertex * 3 + 1] = normalAttr.getY(srcVertex);
+      nextNormals[dstVertex * 3 + 2] = normalAttr.getZ(srcVertex);
+
+      nextUvs[dstVertex * 2] = uvAttr.getX(srcVertex);
+      nextUvs[dstVertex * 2 + 1] = uvAttr.getY(srcVertex);
+    }
+  });
+
+  const cleaned = new THREE.BufferGeometry();
+  cleaned.setAttribute('position', new THREE.BufferAttribute(nextPositions, 3));
+  cleaned.setAttribute('normal', new THREE.BufferAttribute(nextNormals, 3));
+  cleaned.setAttribute('uv', new THREE.BufferAttribute(nextUvs, 2));
+
+  const nextIndices = new Uint32Array(trianglesToKeep.length * 3);
+  for (let i = 0; i < nextIndices.length; i++) {
+    nextIndices[i] = i;
+  }
+  cleaned.setIndex(new THREE.BufferAttribute(nextIndices, 1));
+
+  geometry.dispose();
+  return cleaned;
+}
+
 /**
  * Builds the voxelized head overlay with relief (thickness) based on a heightmap matrix.
  */
-export function buildVoxelizedOverlayWithRelief(
+function buildVoxelizedOverlayWithReliefInternal(
   skinImage: HTMLImageElement,
-  heightmap?: any
+  heightmap?: any,
+  boundaryInset = 0
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = 'HeadOverlayVoxelized';
@@ -280,14 +362,29 @@ export function buildVoxelizedOverlayWithRelief(
   const gridOffset = 3.9375;
 
   // Handle dynamic offsets decided by the AI, or legacy format
-  let offsets = { right: 4.0, left: 4.0, top: 4.0, bottom: 4.0, front: 4.0, back: 4.0 };
+  const baseBoundary = 4.0 + boundaryInset;
+  let offsets = {
+    right: baseBoundary,
+    left: baseBoundary,
+    top: baseBoundary,
+    bottom: baseBoundary,
+    front: baseBoundary,
+    back: baseBoundary,
+  };
   let faceHeightmapSource = heightmap;
 
   if (heightmap && heightmap.offsets) {
     offsets = heightmap.offsets;
   } else if (heightmap) {
     // Legacy support: only front face had 4.15 gap
-    offsets = { right: 4.0, left: 4.0, top: 4.0, bottom: 4.0, front: 4.15, back: 4.0 };
+    offsets = {
+      right: baseBoundary,
+      left: baseBoundary,
+      top: baseBoundary,
+      bottom: baseBoundary,
+      front: 4.15 + boundaryInset,
+      back: baseBoundary,
+    };
   }
 
   // Initialize occupied Set with the base head volume (0..7 on all axes)
@@ -448,13 +545,13 @@ export function buildVoxelizedOverlayWithRelief(
   });
 
   // ─── Shared constants ─────────────────────────────────────────────────────
-  // The outermost column/row pixel center is at ±3.9375; its far edge reaches ±4.5.
-  // The adjacent face overlay starts at ±4.0, so we clip the far portion away:
-  //   clipped width = 4.0 − 3.375 (near edge) = 0.625
-  //   center shift  = −(1.125 − 0.625)/2 = −0.25
+  // The outermost column/row pixel center is at ±3.9375; its near edge is at ±3.375.
+  // The adjacent face overlay starts at ±(4.0 + boundaryInset), so we clip to that boundary:
+  //   clipped width = (4.0 + boundaryInset) − 3.375
+  //   center shift  = −(1.125 − clipped width)/2
   const THICKNESS    = 0.35;
-  const CORNER_CLIP_W = 0.625;
-  const CORNER_SHIFT  = -0.25;   // always negative → moves center inward
+  const CORNER_CLIP_W = 0.625 + boundaryInset;
+  const CORNER_SHIFT  = -0.25 + boundaryInset / 2;
 
   type P3 = { x: number; y: number; z: number };
 
@@ -925,7 +1022,7 @@ export function buildVoxelizedOverlayWithRelief(
   });
 
   if (geometries.length > 0) {
-    const mergedGeom = mergeBufferGeometries(geometries);
+    const mergedGeom = removeExactDuplicateTriangles(mergeBufferGeometries(geometries));
     geometries.forEach((g) => g.dispose());
     
     const mesh = new THREE.Mesh(mergedGeom, voxelMaterial);
@@ -936,6 +1033,21 @@ export function buildVoxelizedOverlayWithRelief(
   }
 
   return group;
+}
+
+export function buildVoxelizedOverlayWithRelief(
+  skinImage: HTMLImageElement,
+  heightmap?: any
+): THREE.Group {
+  return buildVoxelizedOverlayWithReliefInternal(skinImage, heightmap, 0);
+}
+
+export function buildVoxelizedOverlayWithReliefForExport(
+  skinImage: HTMLImageElement,
+  heightmap?: any,
+  boundaryInset = 0.02
+): THREE.Group {
+  return buildVoxelizedOverlayWithReliefInternal(skinImage, heightmap, boundaryInset);
 }
 
 /**
