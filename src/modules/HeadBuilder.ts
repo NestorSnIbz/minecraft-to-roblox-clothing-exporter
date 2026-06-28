@@ -130,47 +130,140 @@ function setSolidPixelUVForBoxFace(
   }
 }
 
-function buildBoxGeometry(
-  w: number,
-  h: number,
-  d: number,
-  uMin: number,
-  uMax: number,
-  vMin: number,
-  vMax: number
+/**
+ * Emits a single face of an axis-aligned box as a non-indexed quad (2 triangles).
+ *
+ * faceIndex follows THREE.BoxGeometry convention:
+ *   0 = +X right   1 = -X left
+ *   2 = +Y top     3 = -Y bottom
+ *   4 = +Z front   5 = -Z back
+ *
+ * All 4 vertices are pinned to the UV center of the pixel (solid-pixel mapping)
+ * to prevent bilinear bleeding between adjacent skin pixels.
+ */
+function buildSingleFaceGeometry(
+  faceIndex: number,
+  w: number, h: number, d: number,
+  uMin: number, uMax: number, vMin: number, vMax: number
 ): THREE.BufferGeometry {
-  const geom = new THREE.BoxGeometry(w, h, d);
-  const uvAttr = geom.attributes.uv as THREE.BufferAttribute;
+  const hw = w / 2, hh = h / 2, hd = d / 2;
+  const uc = (uMin + uMax) / 2;
+  const vc = (vMin + vMax) / 2;
 
-  const solidBounds: SolidPixelUVBounds = { uMin, uMax, vMin, vMax };
-  for (let faceIndex = 0; faceIndex < 6; faceIndex++) {
-    setSolidPixelUVForBoxFace(uvAttr, faceIndex, solidBounds);
+  // Raw quad corners for each face (CCW winding when viewed from outside)
+  type V3 = [number, number, number];
+  const quads: [V3, V3, V3, V3, V3][] = [ // [v0, v1, v2, v3, normal]
+    // 0: +X right
+    [[ hw, -hh,  hd], [ hw,  hh,  hd], [ hw, -hh, -hd], [ hw,  hh, -hd], [1,0,0]],
+    // 1: -X left
+    [[-hw, -hh, -hd], [-hw,  hh, -hd], [-hw, -hh,  hd], [-hw,  hh,  hd], [-1,0,0]],
+    // 2: +Y top
+    [[-hw,  hh,  hd], [ hw,  hh,  hd], [-hw,  hh, -hd], [ hw,  hh, -hd], [0,1,0]],
+    // 3: -Y bottom
+    [[-hw, -hh, -hd], [ hw, -hh, -hd], [-hw, -hh,  hd], [ hw, -hh,  hd], [0,-1,0]],
+    // 4: +Z front (outer / outward)
+    [[-hw, -hh,  hd], [ hw, -hh,  hd], [-hw,  hh,  hd], [ hw,  hh,  hd], [0,0,1]],
+    // 5: -Z back (inner / toward base head) — almost always culled
+    [[ hw, -hh, -hd], [-hw, -hh, -hd], [ hw,  hh, -hd], [-hw,  hh, -hd], [0,0,-1]],
+  ];
+
+  const [v0, v1, v2, v3, n] = quads[faceIndex];
+  const nx = n[0], ny = n[1], nz = n[2];
+
+  // Triangle 0: v0, v1, v2 — Triangle 1: v1, v3, v2
+  const positions = new Float32Array([
+    v0[0],v0[1],v0[2],  v1[0],v1[1],v1[2],  v2[0],v2[1],v2[2],
+    v1[0],v1[1],v1[2],  v3[0],v3[1],v3[2],  v2[0],v2[1],v2[2],
+  ]);
+  const normals = new Float32Array([
+    nx,ny,nz, nx,ny,nz, nx,ny,nz,
+    nx,ny,nz, nx,ny,nz, nx,ny,nz,
+  ]);
+  const uvs = new Float32Array([
+    uc,vc, uc,vc, uc,vc,
+    uc,vc, uc,vc, uc,vc,
+  ]);
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geom.setAttribute('normal',   new THREE.BufferAttribute(normals,   3));
+  geom.setAttribute('uv',       new THREE.BufferAttribute(uvs,       2));
+  return geom;
+}
+
+/**
+ * Builds a box geometry emitting ONLY the faces listed in `visibleFaces`.
+ *
+ * visibleFaces[i] === true  → emit face i  (THREE.BoxGeometry convention)
+ * visibleFaces[4] is the OUTER face  (+Z before rotation) — outward-facing
+ * visibleFaces[5] is the INNER face  (-Z before rotation) — toward base head, usually culled
+ *
+ * The resulting geometry is non-indexed (each triangle is independent) so it
+ * can be safely merged with mergeBufferGeometries().
+ */
+function buildCulledBoxGeometry(
+  w: number, h: number, d: number,
+  uMin: number, uMax: number, vMin: number, vMax: number,
+  visibleFaces: boolean[]
+): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  for (let fi = 0; fi < 6; fi++) {
+    if (visibleFaces[fi]) {
+      parts.push(buildSingleFaceGeometry(fi, w, h, d, uMin, uMax, vMin, vMax));
+    }
   }
-  uvAttr.needsUpdate = true;
+  if (parts.length === 0) {
+    // Return a degenerate empty geometry so callers don't need to null-check
+    return new THREE.BufferGeometry();
+  }
+  if (parts.length === 1) return parts[0];
+  const merged = mergeBufferGeometries(parts);
+  parts.forEach(p => p.dispose());
+  return merged;
+}
 
-  const nonIndexed = geom.toNonIndexed();
-  geom.dispose();
-  return nonIndexed;
+/**
+ * Like buildCulledBoxGeometry but each face can have its own UV bounds
+ * (used for caps/tri-corners that span multiple skin pixels).
+ */
+function buildCulledBoxGeometryWithFacePixels(
+  w: number, h: number, d: number,
+  fallback: SolidPixelUVBounds,
+  faceBounds: Partial<Record<number, SolidPixelUVBounds>>,
+  visibleFaces: boolean[]
+): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  for (let fi = 0; fi < 6; fi++) {
+    if (visibleFaces[fi]) {
+      const b = faceBounds[fi] ?? fallback;
+      parts.push(buildSingleFaceGeometry(fi, w, h, d, b.uMin, b.uMax, b.vMin, b.vMax));
+    }
+  }
+  if (parts.length === 0) return new THREE.BufferGeometry();
+  if (parts.length === 1) return parts[0];
+  const merged = mergeBufferGeometries(parts);
+  parts.forEach(p => p.dispose());
+  return merged;
+}
+
+// Legacy wrappers kept for external callers that still reference these names.
+// They emit all 6 faces (no culling) — only used for the base head which has no coplanar issue.
+function buildBoxGeometry(
+  w: number, h: number, d: number,
+  uMin: number, uMax: number, vMin: number, vMax: number
+): THREE.BufferGeometry {
+  return buildCulledBoxGeometry(w, h, d, uMin, uMax, vMin, vMax, [true,true,true,true,true,true]);
 }
 
 function buildBoxGeometryWithFacePixels(
-  w: number,
-  h: number,
-  d: number,
+  w: number, h: number, d: number,
   fallbackBounds: SolidPixelUVBounds,
   faceBounds: Partial<Record<number, SolidPixelUVBounds>>
 ): THREE.BufferGeometry {
-  const geom = new THREE.BoxGeometry(w, h, d);
-  const uvAttr = geom.attributes.uv as THREE.BufferAttribute;
-
-  for (let faceIndex = 0; faceIndex < 6; faceIndex++) {
-    setSolidPixelUVForBoxFace(uvAttr, faceIndex, faceBounds[faceIndex] ?? fallbackBounds);
-  }
-
-  uvAttr.needsUpdate = true;
-  const nonIndexed = geom.toNonIndexed();
-  geom.dispose();
-  return nonIndexed;
+  return buildCulledBoxGeometryWithFacePixels(
+    w, h, d, fallbackBounds, faceBounds,
+    [true,true,true,true,true,true] // caps emit all 6 until we decide which to cull below
+  );
 }
 
 const BOX_FACE_INDEX_BY_KEY: Record<string, number> = {
@@ -190,6 +283,31 @@ const OPPOSITE_FACE_KEY: Record<string, string> = {
   front: 'back',
   back: 'front',
 };
+
+/**
+ * Maps each head face key to the local-space face index (buildSingleFaceGeometry convention)
+ * whose normal points OUTWARD for that face (away from the head center at origin).
+ *
+ * Face indices (pre-rotation local space):
+ *   0 = +X right   1 = -X left
+ *   2 = +Y top     3 = -Y bottom
+ *   4 = +Z front   5 = -Z back
+ *
+ * Used to determine which faces of cap/corner geometry should be visible:
+ * a cap between faceA and faceB should only show the faces with outward indices
+ * for faceA and faceB, suppressing all other faces whose normals would be
+ * perpendicular to the adjacent face's outward direction and therefore appear
+ * as a darker border due to different lighting angle in MeshStandardMaterial.
+ */
+const FACE_KEY_OUTWARD_IDX: Record<string, number> = {
+  right:  0,  // +X outward → face index 0
+  left:   1,  // -X outward → face index 1
+  top:    2,  // +Y outward → face index 2
+  bottom: 3,  // -Y outward → face index 3
+  front:  4,  // +Z outward → face index 4
+  back:   5,  // -Z outward → face index 5
+};
+
 
 function assignAxisFacePixels(
   target: Partial<Record<number, SolidPixelUVBounds>>,
@@ -257,12 +375,94 @@ function mergeBufferGeometries(geometries: THREE.BufferGeometry[]): THREE.Buffer
   return mergedGeom;
 }
 
+function removeExactDuplicateTriangles(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
+  const positionAttr = geometry.getAttribute('position');
+  const normalAttr = geometry.getAttribute('normal');
+  const uvAttr = geometry.getAttribute('uv');
+
+  if (
+    !(positionAttr instanceof THREE.BufferAttribute) ||
+    !(normalAttr instanceof THREE.BufferAttribute) ||
+    !(uvAttr instanceof THREE.BufferAttribute)
+  ) {
+    return geometry;
+  }
+
+  const triangleCount = Math.floor(positionAttr.count / 3);
+  const triangleGroups = new Map<string, number[]>();
+
+  const vertexKey = (vertexIndex: number) =>
+    `${positionAttr.getX(vertexIndex).toFixed(5)},${positionAttr.getY(vertexIndex).toFixed(5)},${positionAttr.getZ(vertexIndex).toFixed(5)}`;
+
+  for (let tri = 0; tri < triangleCount; tri++) {
+    const start = tri * 3;
+    const key = [vertexKey(start), vertexKey(start + 1), vertexKey(start + 2)]
+      .sort()
+      .join('|');
+
+    const bucket = triangleGroups.get(key);
+    if (bucket) {
+      bucket.push(tri);
+    } else {
+      triangleGroups.set(key, [tri]);
+    }
+  }
+
+  const trianglesToKeep: number[] = [];
+  for (const tris of triangleGroups.values()) {
+    if (tris.length === 1) {
+      trianglesToKeep.push(tris[0]);
+    }
+  }
+
+  if (trianglesToKeep.length === triangleCount) {
+    return geometry;
+  }
+
+  const nextPositions = new Float32Array(trianglesToKeep.length * 9);
+  const nextNormals = new Float32Array(trianglesToKeep.length * 9);
+  const nextUvs = new Float32Array(trianglesToKeep.length * 6);
+
+  trianglesToKeep.forEach((tri, outTri) => {
+    for (let corner = 0; corner < 3; corner++) {
+      const srcVertex = tri * 3 + corner;
+      const dstVertex = outTri * 3 + corner;
+
+      nextPositions[dstVertex * 3] = positionAttr.getX(srcVertex);
+      nextPositions[dstVertex * 3 + 1] = positionAttr.getY(srcVertex);
+      nextPositions[dstVertex * 3 + 2] = positionAttr.getZ(srcVertex);
+
+      nextNormals[dstVertex * 3] = normalAttr.getX(srcVertex);
+      nextNormals[dstVertex * 3 + 1] = normalAttr.getY(srcVertex);
+      nextNormals[dstVertex * 3 + 2] = normalAttr.getZ(srcVertex);
+
+      nextUvs[dstVertex * 2] = uvAttr.getX(srcVertex);
+      nextUvs[dstVertex * 2 + 1] = uvAttr.getY(srcVertex);
+    }
+  });
+
+  const cleaned = new THREE.BufferGeometry();
+  cleaned.setAttribute('position', new THREE.BufferAttribute(nextPositions, 3));
+  cleaned.setAttribute('normal', new THREE.BufferAttribute(nextNormals, 3));
+  cleaned.setAttribute('uv', new THREE.BufferAttribute(nextUvs, 2));
+
+  const nextIndices = new Uint32Array(trianglesToKeep.length * 3);
+  for (let i = 0; i < nextIndices.length; i++) {
+    nextIndices[i] = i;
+  }
+  cleaned.setIndex(new THREE.BufferAttribute(nextIndices, 1));
+
+  geometry.dispose();
+  return cleaned;
+}
+
 /**
  * Builds the voxelized head overlay with relief (thickness) based on a heightmap matrix.
  */
-export function buildVoxelizedOverlayWithRelief(
+function buildVoxelizedOverlayWithReliefInternal(
   skinImage: HTMLImageElement,
-  heightmap?: any
+  heightmap?: any,
+  boundaryInset = 0
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = 'HeadOverlayVoxelized';
@@ -280,14 +480,29 @@ export function buildVoxelizedOverlayWithRelief(
   const gridOffset = 3.9375;
 
   // Handle dynamic offsets decided by the AI, or legacy format
-  let offsets = { right: 4.0, left: 4.0, top: 4.0, bottom: 4.0, front: 4.0, back: 4.0 };
+  const baseBoundary = 4.0 + boundaryInset;
+  let offsets = {
+    right: baseBoundary,
+    left: baseBoundary,
+    top: baseBoundary,
+    bottom: baseBoundary,
+    front: baseBoundary,
+    back: baseBoundary,
+  };
   let faceHeightmapSource = heightmap;
 
   if (heightmap && heightmap.offsets) {
     offsets = heightmap.offsets;
   } else if (heightmap) {
     // Legacy support: only front face had 4.15 gap
-    offsets = { right: 4.0, left: 4.0, top: 4.0, bottom: 4.0, front: 4.15, back: 4.0 };
+    offsets = {
+      right: baseBoundary,
+      left: baseBoundary,
+      top: baseBoundary,
+      bottom: baseBoundary,
+      front: 4.15 + boundaryInset,
+      back: baseBoundary,
+    };
   }
 
   // Initialize occupied Set with the base head volume (0..7 on all axes)
@@ -448,474 +663,195 @@ export function buildVoxelizedOverlayWithRelief(
   });
 
   // ─── Shared constants ─────────────────────────────────────────────────────
-  // The outermost column/row pixel center is at ±3.9375; its far edge reaches ±4.5.
-  // The adjacent face overlay starts at ±4.0, so we clip the far portion away:
-  //   clipped width = 4.0 − 3.375 (near edge) = 0.625
-  //   center shift  = −(1.125 − 0.625)/2 = −0.25
+  // The outermost column/row pixel center is at ±3.9375; its near edge is at ±3.375.
+  // The adjacent face overlay starts at ±(4.0 + boundaryInset), so we clip to that boundary:
+  //   clipped width = (4.0 + boundaryInset) − 3.375
+  //   center shift  = −(1.125 − clipped width)/2
   const THICKNESS    = 0.35;
-  const CORNER_CLIP_W = 0.625;
-  const CORNER_SHIFT  = -0.25;   // always negative → moves center inward
 
-  type P3 = { x: number; y: number; z: number };
 
-  // ─── Vertical corner definitions (4 corners: left/right meets front/back) ─
-  // clipA/clipB: shift the face voxel center so it stops at the ±4.0 boundary.
-  // capPos: center of the THICKNESS×pixelSize×THICKNESS square cap that fills the gap.
-  const vcDefs = [
-    // Front col=7 ↔ Right col=0  (+x, +z corner)
-    // topPixel:    the top-face pixel at this tri-corner
-    // bottomPixel: the bottom-face pixel at this tri-corner
-    { faceA: 'front', colA: 7, faceB: 'right', colB: 0,
-      clipAPos: (p: P3) => ({ ...p, x: p.x + CORNER_SHIFT }),
-      clipBPos: (p: P3) => ({ ...p, z: p.z + CORNER_SHIFT }),
-      capPos: (row: number, pOfsA: number, pOfsB: number, th: number): P3 => ({
-        x: pOfsB + th / 2, y: gridOffset - row * pixelSize, z: pOfsA + th / 2 }),
-      topPixel:    { row: 7, col: 7 },   // top face front-right pixel
-      bottomPixel: { row: 7, col: 0 } }, // bottom face front-right pixel
-    // Front col=0 ↔ Left col=7  (−x, +z corner)
-    { faceA: 'front', colA: 0, faceB: 'left', colB: 7,
-      clipAPos: (p: P3) => ({ ...p, x: p.x - CORNER_SHIFT }),
-      clipBPos: (p: P3) => ({ ...p, z: p.z + CORNER_SHIFT }),
-      capPos: (row: number, pOfsA: number, pOfsB: number, th: number): P3 => ({
-        x: -(pOfsB + th / 2), y: gridOffset - row * pixelSize, z: pOfsA + th / 2 }),
-      topPixel:    { row: 7, col: 0 },
-      bottomPixel: { row: 7, col: 7 } },
-    // Back col=0 ↔ Right col=7  (+x, −z corner)
-    { faceA: 'back', colA: 0, faceB: 'right', colB: 7,
-      clipAPos: (p: P3) => ({ ...p, x: p.x + CORNER_SHIFT }),
-      clipBPos: (p: P3) => ({ ...p, z: p.z - CORNER_SHIFT }),
-      capPos: (row: number, pOfsA: number, pOfsB: number, th: number): P3 => ({
-        x: pOfsB + th / 2, y: gridOffset - row * pixelSize, z: -(pOfsA + th / 2) }),
-      topPixel:    { row: 0, col: 7 },
-      bottomPixel: { row: 0, col: 0 } },
-    // Back col=7 ↔ Left col=0  (−x, −z corner)
-    { faceA: 'back', colA: 7, faceB: 'left', colB: 0,
-      clipAPos: (p: P3) => ({ ...p, x: p.x - CORNER_SHIFT }),
-      clipBPos: (p: P3) => ({ ...p, z: p.z - CORNER_SHIFT }),
-      capPos: (row: number, pOfsA: number, pOfsB: number, th: number): P3 => ({
-        x: -(pOfsB + th / 2), y: gridOffset - row * pixelSize, z: -(pOfsA + th / 2) }),
-      topPixel:    { row: 0, col: 0 },
-      bottomPixel: { row: 0, col: 7 } },
-  ];
 
-  // Lookup: "${face}:${col}" → { def, role }
-  type VCRole = { def: typeof vcDefs[0]; role: 'A' | 'B' };
-  const vcLookup = new Map<string, VCRole>();
-  vcDefs.forEach(def => {
-    vcLookup.set(`${def.faceA}:${def.colA}`, { def, role: 'A' });
-    vcLookup.set(`${def.faceB}:${def.colB}`, { def, role: 'B' });
-  });
 
-  // ─── Horizontal edge definitions (8 edges: top/bottom ↔ side faces) ───────
-  //
-  // Each edge has:
-  //   faceA = top or bottom face (protrudes in ±Y)
-  //   faceB = a side face (front/back/left/right, protrudes in ±X or ±Z)
-  //
-  //   isEdgeA / isEdgeB: does (row,col) sit on this edge?
-  //   paramFromA/B: the "edge index" (0-7) for the pixel along the edge.
-  //   rowBfromP / colBfromP: faceB (row,col) from edge index.
-  //   rowAfromP / colAfromP: faceA (row,col) from edge index.
-  //
-  //   clipADim: 'w' clips the voxel width;  'h' clips the voxel height
-  //     • Top/Bottom face: w→world-x, h→world-z  (after their rotations)
-  //     • Side face:       w→world-x/z, h→world-y
-  //   clipAPos / clipBPos: shift the voxel center inward by CORNER_SHIFT on the clipped axis.
-  //
-  //   capW/capH/capD: dimensions of the cap box (NO extra rotation applied).
-  //     Caps are axis-aligned boxes that fill the gap in the ±Y × ±outward plane.
-  //   getCapCenter: world position of the cap center.
-  // boundaries: when the cap's long dimension (capW or capD === pixelSize) is at edge
-  // parameter 0 or 7, a VC collision on the adjacent face would cause the cap to protrude.
-  // Each entry: param to check, which face/pixel to query, and shift for the long axis.
-  type HEdgeBoundary = {
-    param: number; adjFace: string; adjRow: number; adjCol: number;
-    shiftX: number; shiftZ: number;
-  };
-  type HEdgeDef = {
-    id: string;
-    faceA: string; faceB: string;
-    isEdgeA: (r: number, c: number) => boolean;
-    paramFromA: (r: number, c: number) => number;
-    rowBfromP: (p: number) => number; colBfromP: (p: number) => number;
-    isEdgeB: (r: number, c: number) => boolean;
-    paramFromB: (r: number, c: number) => number;
-    rowAfromP: (p: number) => number; colAfromP: (p: number) => number;
-    clipADim: 'w' | 'h'; clipAPos: (p: P3) => P3;
-    clipBDim: 'w' | 'h'; clipBPos: (p: P3) => P3;
-    capW: number; capH: number; capD: number;
-    getCapCenter: (p: number, pOfsA: number, pOfsB: number) => P3;
-    boundaries: HEdgeBoundary[];
-  };
 
-  const heDefs: HEdgeDef[] = [
-    // ① Top row=7 ↔ Front row=0  (top-front edge, +y/+z)
-    // boundaries: param=7(right side)→check right[0][0]; param=0(left side)→check left[0][7]
-    { id: 'top-front', faceA: 'top', faceB: 'front',
-      isEdgeA: (r, _unusedC) => r === 7,   paramFromA: (_unusedR, c) => c,
-      rowBfromP: (_p) => 0,          colBfromP: (p) => p,
-      isEdgeB: (r, _unusedC) => r === 0,  paramFromB: (_unusedR, c) => c,
-      rowAfromP: (_p) => 7,          colAfromP: (p) => p,
-      clipADim: 'h', clipAPos: (p) => ({ ...p, z: p.z + CORNER_SHIFT }),  // top h→z, clip z toward −
-      clipBDim: 'h', clipBPos: (p) => ({ ...p, y: p.y + CORNER_SHIFT }),  // front h→y, clip y toward −
-      capW: pixelSize, capH: THICKNESS, capD: THICKNESS,
-      getCapCenter: (p, pOfsA, pOfsB) => ({
-        x: -gridOffset + p * pixelSize, y: pOfsA + THICKNESS / 2, z: pOfsB + THICKNESS / 2 }),
-      boundaries: [
-        { param: 7, adjFace: 'right', adjRow: 0, adjCol: 0, shiftX: CORNER_SHIFT,  shiftZ: 0 },
-        { param: 0, adjFace: 'left',  adjRow: 0, adjCol: 7, shiftX: -CORNER_SHIFT, shiftZ: 0 },
-      ] },
 
-    // ② Top row=0 ↔ Back row=0  (top-back edge, +y/−z)
-    // Top row=0 → z = −3.9375 (back edge). Back row=0 → y = +3.9375 (top edge).
-    // Top col=c ↔ Back col=7−c  (mirrored x)
-    { id: 'top-back', faceA: 'top', faceB: 'back',
-      isEdgeA: (r, _unusedC) => r === 0, paramFromA: (_unusedR, c) => c,
-      rowBfromP: (_p) => 0,         colBfromP: (p) => 7 - p,
-      isEdgeB: (r, _unusedC) => r === 0, paramFromB: (_unusedR, c) => 7 - c,
-      rowAfromP: (_p) => 0,         colAfromP: (p) => p,
-      clipADim: 'h', clipAPos: (p) => ({ ...p, z: p.z - CORNER_SHIFT }),  // z=−3.9375, clip toward +z → shift +0.25
-      clipBDim: 'h', clipBPos: (p) => ({ ...p, y: p.y + CORNER_SHIFT }),  // y=+3.9375, clip toward −y
-      capW: pixelSize, capH: THICKNESS, capD: THICKNESS,
-      getCapCenter: (p, pOfsA, pOfsB) => ({
-        x: -gridOffset + p * pixelSize, y: pOfsA + THICKNESS / 2, z: -(pOfsB + THICKNESS / 2) }),
-      boundaries: [
-        { param: 7, adjFace: 'right', adjRow: 0, adjCol: 7, shiftX: CORNER_SHIFT,  shiftZ: 0 },
-        { param: 0, adjFace: 'left',  adjRow: 0, adjCol: 0, shiftX: -CORNER_SHIFT, shiftZ: 0 },
-      ] },
 
-    // ③ Top col=7 ↔ Right row=0  (top-right edge, +y/+x)
-    // Top col=7 → x=+3.9375. Right row=0 → y=+3.9375.
-    // Top row=r ↔ Right col=7−r  (z matches: −3.9375+r·ps = 3.9375−(7−r)·ps ✓)
-    { id: 'top-right', faceA: 'top', faceB: 'right',
-      isEdgeA: (_unusedR, c) => c === 7, paramFromA: (r, _unusedC) => r,
-      rowBfromP: (_p) => 0,         colBfromP: (p) => 7 - p,
-      isEdgeB: (r, _unusedC) => r === 0, paramFromB: (_unusedR, c) => 7 - c,
-      rowAfromP: (p) => p,           colAfromP: (_p) => 7,
-      clipADim: 'w', clipAPos: (p) => ({ ...p, x: p.x + CORNER_SHIFT }),  // top w→x, x=+3.9375, clip toward −x
-      clipBDim: 'h', clipBPos: (p) => ({ ...p, y: p.y + CORNER_SHIFT }),  // right h→y
-      capW: THICKNESS, capH: THICKNESS, capD: pixelSize,
-      getCapCenter: (p, pOfsA, pOfsB) => ({
-        x: pOfsB + THICKNESS / 2, y: pOfsA + THICKNESS / 2, z: -gridOffset + p * pixelSize }),
-      boundaries: [
-        { param: 7, adjFace: 'front', adjRow: 0, adjCol: 7, shiftX: 0, shiftZ: CORNER_SHIFT  },
-        { param: 0, adjFace: 'back',  adjRow: 0, adjCol: 0, shiftX: 0, shiftZ: -CORNER_SHIFT },
-      ] },
+  // Helper to find the adjacent boundary pixel on another face
+  function getBoundaryNeighbor(
+    faceKey: string,
+    row: number,
+    col: number,
+    localFaceIdx: number
+  ): { face: string; row: number; col: number } | null {
+    if (localFaceIdx === 0) { // +X local (right boundary)
+      if (col < 7) return null;
+      if (faceKey === 'front')  return { face: 'right',  row: row,     col: 0 };
+      if (faceKey === 'back')   return { face: 'left',   row: row,     col: 0 };
+      if (faceKey === 'right')  return { face: 'back',   row: row,     col: 0 };
+      if (faceKey === 'left')   return { face: 'front',  row: row,     col: 0 };
+      if (faceKey === 'top')    return { face: 'right',  row: 0,       col: 7 - row };
+      if (faceKey === 'bottom') return { face: 'left',   row: 7,       col: row };
+    }
+    if (localFaceIdx === 1) { // -X local (left boundary)
+      if (col > 0) return null;
+      if (faceKey === 'front')  return { face: 'left',   row: row,     col: 7 };
+      if (faceKey === 'back')   return { face: 'right',  row: row,     col: 7 };
+      if (faceKey === 'right')  return { face: 'front',  row: row,     col: 7 };
+      if (faceKey === 'left')   return { face: 'back',   row: row,     col: 7 };
+      if (faceKey === 'top')    return { face: 'left',   row: 0,       col: row };
+      if (faceKey === 'bottom') return { face: 'right',  row: 7,       col: 7 - row };
+    }
+    if (localFaceIdx === 2) { // +Y local (top boundary)
+      if (row > 0) return null;
+      if (faceKey === 'front')  return { face: 'top',    row: 7,       col: col };
+      if (faceKey === 'back')   return { face: 'top',    row: 0,       col: 7 - col };
+      if (faceKey === 'right')  return { face: 'top',    row: 7 - col, col: 7 };
+      if (faceKey === 'left')   return { face: 'top',    row: col,     col: 0 };
+      if (faceKey === 'top')    return { face: 'back',   row: 0,       col: 7 - col };
+      if (faceKey === 'bottom') return { face: 'back',   row: 7,       col: col };
+    }
+    if (localFaceIdx === 3) { // -Y local (bottom boundary)
+      if (row < 7) return null;
+      if (faceKey === 'front')  return { face: 'bottom', row: 0,       col: col };
+      if (faceKey === 'back')   return { face: 'bottom', row: 7,       col: 7 - col };
+      if (faceKey === 'right')  return { face: 'bottom', row: 7 - col, col: 0 };
+      if (faceKey === 'left')   return { face: 'bottom', row: col,     col: 7 };
+      if (faceKey === 'top')    return { face: 'front',  row: 0,       col: col };
+      if (faceKey === 'bottom') return { face: 'front',  row: 7,       col: 7 - col };
+    }
+    return null;
+  }
 
-    // ④ Top col=0 ↔ Left row=0  (top-left edge, +y/−x)
-    // Top col=0 → x=−3.9375. Left row=0 → y=+3.9375.
-    // Top row=r ↔ Left col=r  (z matches: −3.9375+r·ps = −3.9375+r·ps ✓)
-    { id: 'top-left', faceA: 'top', faceB: 'left',
-      isEdgeA: (_unusedR, c) => c === 0, paramFromA: (r, _unusedC) => r,
-      rowBfromP: (_p) => 0,         colBfromP: (p) => p,
-      isEdgeB: (r, _unusedC) => r === 0, paramFromB: (_unusedR, c) => c,
-      rowAfromP: (p) => p,           colAfromP: (_p) => 0,
-      clipADim: 'w', clipAPos: (p) => ({ ...p, x: p.x - CORNER_SHIFT }),  // x=−3.9375, clip toward +x → shift +0.25
-      clipBDim: 'h', clipBPos: (p) => ({ ...p, y: p.y + CORNER_SHIFT }),
-      capW: THICKNESS, capH: THICKNESS, capD: pixelSize,
-      getCapCenter: (p, pOfsA, pOfsB) => ({
-        x: -(pOfsB + THICKNESS / 2), y: pOfsA + THICKNESS / 2, z: -gridOffset + p * pixelSize }),
-      boundaries: [
-        { param: 7, adjFace: 'front', adjRow: 0, adjCol: 0, shiftX: 0, shiftZ: CORNER_SHIFT  },
-        { param: 0, adjFace: 'back',  adjRow: 0, adjCol: 7, shiftX: 0, shiftZ: -CORNER_SHIFT },
-      ] },
+  function isNeighborActive(neighbor: { face: string; row: number; col: number } | null): boolean {
+    if (!neighbor) return false;
+    return overlayMask[neighbor.face]?.[neighbor.row]?.[neighbor.col]?.active ?? false;
+  }
 
-    // ⑤ Bottom row=7 ↔ Front row=7  (bottom-front edge, −y/+z)
-    // Bottom row=7 → z=+3.9375. Front row=7 → y=−3.9375.
-    // Bottom col=7−c ↔ Front col=c  (x matches: 3.9375−(7−c)·ps = −3.9375+c·ps ✓)
-    { id: 'bottom-front', faceA: 'bottom', faceB: 'front',
-      isEdgeA: (r, _unusedC) => r === 7, paramFromA: (_unusedR, c) => 7 - c,
-      rowBfromP: (_p) => 7,         colBfromP: (p) => p,
-      isEdgeB: (r, _unusedC) => r === 7, paramFromB: (_unusedR, c) => c,
-      rowAfromP: (_p) => 7,         colAfromP: (p) => 7 - p,
-      clipADim: 'h', clipAPos: (p) => ({ ...p, z: p.z + CORNER_SHIFT }),  // z=+3.9375, clip toward −z
-      clipBDim: 'h', clipBPos: (p) => ({ ...p, y: p.y - CORNER_SHIFT }),  // y=−3.9375, clip toward +y → shift +0.25
-      capW: pixelSize, capH: THICKNESS, capD: THICKNESS,
-      getCapCenter: (p, pOfsA, pOfsB) => ({
-        x: -gridOffset + p * pixelSize, y: -(pOfsA + THICKNESS / 2), z: pOfsB + THICKNESS / 2 }),
-      boundaries: [
-        { param: 7, adjFace: 'right', adjRow: 7, adjCol: 0, shiftX: CORNER_SHIFT,  shiftZ: 0 },
-        { param: 0, adjFace: 'left',  adjRow: 7, adjCol: 7, shiftX: -CORNER_SHIFT, shiftZ: 0 },
-      ] },
-
-    // ⑥ Bottom row=0 ↔ Back row=7  (bottom-back edge, −y/−z)
-    // Bottom row=0 → z=−3.9375. Back row=7 → y=−3.9375.
-    // Bottom col=c ↔ Back col=c  (x: 3.9375−c·ps = 3.9375−c·ps ✓)
-    { id: 'bottom-back', faceA: 'bottom', faceB: 'back',
-      isEdgeA: (r, _unusedC) => r === 0, paramFromA: (_unusedR, c) => c,
-      rowBfromP: (_p) => 7,         colBfromP: (p) => p,
-      isEdgeB: (r, _unusedC) => r === 7, paramFromB: (_unusedR, c) => c,
-      rowAfromP: (_p) => 0,         colAfromP: (p) => p,
-      clipADim: 'h', clipAPos: (p) => ({ ...p, z: p.z - CORNER_SHIFT }),  // z=−3.9375, clip toward +z
-      clipBDim: 'h', clipBPos: (p) => ({ ...p, y: p.y - CORNER_SHIFT }),  // y=−3.9375, clip toward +y
-      capW: pixelSize, capH: THICKNESS, capD: THICKNESS,
-      getCapCenter: (p, pOfsA, pOfsB) => ({
-        x: gridOffset - p * pixelSize, y: -(pOfsA + THICKNESS / 2), z: -(pOfsB + THICKNESS / 2) }),
-      boundaries: [
-        { param: 0, adjFace: 'right', adjRow: 7, adjCol: 7, shiftX: CORNER_SHIFT,  shiftZ: 0 },
-        { param: 7, adjFace: 'left',  adjRow: 7, adjCol: 0, shiftX: -CORNER_SHIFT, shiftZ: 0 },
-      ] },
-
-    // ⑦ Bottom col=0 ↔ Right row=7  (bottom-right edge, −y/+x)
-    // Bottom col=0 → x=+3.9375. Right row=7 → y=−3.9375.
-    // Bottom row=r ↔ Right col=7−r  (z: −3.9375+r·ps = 3.9375−(7−r)·ps ✓)
-    { id: 'bottom-right', faceA: 'bottom', faceB: 'right',
-      isEdgeA: (_unusedR, c) => c === 0, paramFromA: (r, _unusedC) => r,
-      rowBfromP: (_p) => 7,         colBfromP: (p) => 7 - p,
-      isEdgeB: (r, _unusedC) => r === 7, paramFromB: (_unusedR, c) => 7 - c,
-      rowAfromP: (p) => p,           colAfromP: (_p) => 0,
-      clipADim: 'w', clipAPos: (p) => ({ ...p, x: p.x + CORNER_SHIFT }),  // x=+3.9375, clip toward −x
-      clipBDim: 'h', clipBPos: (p) => ({ ...p, y: p.y - CORNER_SHIFT }),
-      capW: THICKNESS, capH: THICKNESS, capD: pixelSize,
-      getCapCenter: (p, pOfsA, pOfsB) => ({
-        x: pOfsB + THICKNESS / 2, y: -(pOfsA + THICKNESS / 2), z: -gridOffset + p * pixelSize }),
-      boundaries: [
-        { param: 7, adjFace: 'front', adjRow: 7, adjCol: 7, shiftX: 0, shiftZ: CORNER_SHIFT  },
-        { param: 0, adjFace: 'back',  adjRow: 7, adjCol: 0, shiftX: 0, shiftZ: -CORNER_SHIFT },
-      ] },
-
-    // ⑧ Bottom col=7 ↔ Left row=7  (bottom-left edge, −y/−x)
-    // Bottom col=7 → x=−3.9375. Left row=7 → y=−3.9375.
-    // Bottom row=r ↔ Left col=r  (z: −3.9375+r·ps = −3.9375+r·ps ✓)
-    { id: 'bottom-left', faceA: 'bottom', faceB: 'left',
-      isEdgeA: (_unusedR, c) => c === 7, paramFromA: (r, _unusedC) => r,
-      rowBfromP: (_p) => 7,         colBfromP: (p) => p,
-      isEdgeB: (r, _unusedC) => r === 7, paramFromB: (_unusedR, c) => c,
-      rowAfromP: (p) => p,           colAfromP: (_p) => 7,
-      clipADim: 'w', clipAPos: (p) => ({ ...p, x: p.x - CORNER_SHIFT }),  // x=−3.9375, clip toward +x
-      clipBDim: 'h', clipBPos: (p) => ({ ...p, y: p.y - CORNER_SHIFT }),
-      capW: THICKNESS, capH: THICKNESS, capD: pixelSize,
-      getCapCenter: (p, pOfsA, pOfsB) => ({
-        x: -(pOfsB + THICKNESS / 2), y: -(pOfsA + THICKNESS / 2), z: -gridOffset + p * pixelSize }),
-      boundaries: [
-        { param: 7, adjFace: 'front', adjRow: 7, adjCol: 0, shiftX: 0, shiftZ: CORNER_SHIFT  },
-        { param: 0, adjFace: 'back',  adjRow: 7, adjCol: 7, shiftX: 0, shiftZ: -CORNER_SHIFT },
-      ] },
-  ];
-
-  // Track emitted caps (both vertical corner caps and horizontal edge caps share one set)
-  const emittedCaps = new Set<string>();
-
-  // ─── Pass 2: Generate geometry ────────────────────────────────────────────
   faces.forEach((face) => {
     for (let row = 0; row < 8; row++) {
       for (let col = 0; col < 8; col++) {
         const info = overlayMask[face.key][row][col];
         if (!info.active) continue;
 
-        // Occupied-set check (prevents duplicate voxels across faces sharing a grid slot)
+        // Occupied-set check
         const d = 1;
         const coord = face.getGridCoord(col, row, d);
         const coordKey = `${coord.gx},${coord.gy},${coord.gz}`;
         if (occupied.has(coordKey)) continue;
         occupied.add(coordKey);
 
-        // Accumulate clip flags and position adjustments from all applicable collisions.
-        // A pixel at a tri-corner (e.g. front row=0 col=7) will accumulate BOTH
-        // a vertical-corner clip (on w) and a horizontal-edge clip (on h) simultaneously.
-        let clipW = false;
-        let clipH = false;
-        let pos = face.getPos(col, row, THICKNESS, info.pixelOffset);
+        // Natural local bounds for this voxel
+        const localX_min = -4.5 + col * 1.125;
+        const localX_max = -4.5 + (col + 1) * 1.125;
+        const localY_min = 4.5 - (row + 1) * 1.125;
+        const localY_max = 4.5 - row * 1.125;
 
-        // ── Vertical corner check ──────────────────────────────────────────
-        const vcr = vcLookup.get(`${face.key}:${col}`);
-        if (vcr) {
-          const { def, role } = vcr;
-          const adjFaceKey = role === 'A' ? def.faceB : def.faceA;
-          const adjCol     = role === 'A' ? def.colB  : def.colA;
-          const adjInfo    = overlayMask[adjFaceKey]?.[row]?.[adjCol];
-          if (adjInfo?.active) {
-            clipW = true;
-            pos = role === 'A' ? def.clipAPos(pos) : def.clipBPos(pos);
+        let xMin = localX_min;
+        let xMax = localX_max;
+        let yMin = localY_min;
+        let yMax = localY_max;
 
-            const vcCapKey = `vc:${def.faceA}:${def.faceB}:${row}`;
-            if (!emittedCaps.has(vcCapKey)) {
-              emittedCaps.add(vcCapKey);
-              const piA = overlayMask[def.faceA][row][def.colA];
-              const piB = overlayMask[def.faceB][row][def.colB];
-              const cpi = role === 'A' ? piA : piB;
-              // Tri-corner: if top or bottom face also has overlay at the corner pixel,
-              // clip the cap's Y so it stops at ±4.0 (the top/bottom face boundary).
-              let capH = pixelSize;
-              let capYShift = 0;
-              if (row === 0) {
-                const tpx = (def as any).topPixel;
-                if (tpx && overlayMask['top']?.[tpx.row]?.[tpx.col]?.active) {
-                  capH = CORNER_CLIP_W; capYShift = CORNER_SHIFT;
-                }
-              } else if (row === 7) {
-                const bpx = (def as any).bottomPixel;
-                if (bpx && overlayMask['bottom']?.[bpx.row]?.[bpx.col]?.active) {
-                  capH = CORNER_CLIP_W; capYShift = -CORNER_SHIFT;
-                }
+        // Perform face culling (0:+X, 1:-X, 2:+Y, 3:-Y, 4:+Z outer, 5:-Z inner)
+        const visibleFaces = [false, false, false, false, true, false];
+
+        const getPriority = (f: string) => {
+          if (f === 'top' || f === 'bottom') return 3;
+          if (f === 'front' || f === 'back') return 2;
+          return 1;
+        };
+
+        for (let fi = 0; fi < 4; fi++) {
+          let hasSameFaceNeighbor = false;
+          if (fi === 0 && col < 7) hasSameFaceNeighbor = overlayMask[face.key][row][col + 1]?.active;
+          else if (fi === 1 && col > 0) hasSameFaceNeighbor = overlayMask[face.key][row][col - 1]?.active;
+          else if (fi === 2 && row > 0) hasSameFaceNeighbor = overlayMask[face.key][row - 1][col]?.active;
+          else if (fi === 3 && row < 7) hasSameFaceNeighbor = overlayMask[face.key][row + 1][col]?.active;
+
+          if (hasSameFaceNeighbor) {
+            visibleFaces[fi] = false;
+          } else {
+            const bNeighbor = getBoundaryNeighbor(face.key, row, col, fi);
+            if (bNeighbor) {
+              // This is a boundary edge!
+              // Add a tiny overlap of 0.005 to prevent rendering seams / Z-fighting along the corner edges
+              let limitCoord = baseBoundary;
+              const isNeighborActiveVal = isNeighborActive(bNeighbor);
+              if (isNeighborActiveVal) {
+                const adjOffset = overlayMask[bNeighbor.face][bNeighbor.row][bNeighbor.col].pixelOffset;
+                limitCoord = adjOffset + THICKNESS;
               }
-              const rawCapPos = def.capPos(row, piA.pixelOffset, piB.pixelOffset, THICKNESS);
-              const capPos = { ...rawCapPos, y: rawCapPos.y + capYShift };
-              const capFaceBounds: Partial<Record<number, SolidPixelUVBounds>> = {};
-              assignAxisFacePixels(capFaceBounds, def.faceA, piA, def.faceA !== 'top' && def.faceA !== 'bottom');
-              assignAxisFacePixels(capFaceBounds, def.faceB, piB, def.faceB !== 'top' && def.faceB !== 'bottom');
-              if (row === 0) {
-                const tpx = (def as any).topPixel;
-                const topInfo = tpx ? overlayMask['top']?.[tpx.row]?.[tpx.col] : null;
-                if (topInfo?.active) {
-                  assignAxisFacePixels(capFaceBounds, 'top', topInfo, false);
-                }
-              } else if (row === 7) {
-                const bpx = (def as any).bottomPixel;
-                const bottomInfo = bpx ? overlayMask['bottom']?.[bpx.row]?.[bpx.col] : null;
-                if (bottomInfo?.active) {
-                  assignAxisFacePixels(capFaceBounds, 'bottom', bottomInfo, false);
-                }
+
+              // Check priority: if current face has higher priority than neighbor face, add 0.005 overlap
+              if (getPriority(face.key) > getPriority(bNeighbor.face)) {
+                limitCoord += 0.005;
               }
-              const capGeom = buildBoxGeometryWithFacePixels(
-                THICKNESS,
-                capH,
-                THICKNESS,
-                cpi,
-                capFaceBounds
-              );
-              capGeom.translate(capPos.x, capPos.y, capPos.z);
-              geometries.push(capGeom);
-            }
-          }
-        }
 
-        // ── Horizontal edge checks (iterate all 8 defs; a pixel may match >1) ──
-        for (const hDef of heDefs) {
-          let heRole: 'A' | 'B' | null = null;
-          let param = 0;
+              // Clip the voxel boundary to the limit coordinate
+              if (fi === 0) xMax = limitCoord;
+              else if (fi === 1) xMin = -limitCoord;
+              else if (fi === 2) yMax = limitCoord;
+              else if (fi === 3) yMin = -limitCoord;
 
-          if (hDef.faceA === face.key && hDef.isEdgeA(row, col)) {
-            param = hDef.paramFromA(row, col);
-            const adjInfo = overlayMask[hDef.faceB]?.[hDef.rowBfromP(param)]?.[hDef.colBfromP(param)];
-            if (adjInfo?.active) heRole = 'A';
-          } else if (hDef.faceB === face.key && hDef.isEdgeB(row, col)) {
-            param = hDef.paramFromB(row, col);
-            const adjInfo = overlayMask[hDef.faceA]?.[hDef.rowAfromP(param)]?.[hDef.colAfromP(param)];
-            if (adjInfo?.active) heRole = 'B';
-          }
-
-          if (heRole !== null) {
-            if (heRole === 'A') {
-              if (hDef.clipADim === 'w') clipW = true; else clipH = true;
-              pos = hDef.clipAPos(pos);
+              // Cull the boundary side face only if the neighbor is active (otherwise it is exposed and must be rendered to seal the voxel)
+              if (isNeighborActiveVal) {
+                visibleFaces[fi] = false;
+              } else {
+                visibleFaces[fi] = true;
+              }
             } else {
-              if (hDef.clipBDim === 'w') clipW = true; else clipH = true;
-              pos = hDef.clipBPos(pos);
-            }
-
-            const heCapKey = `he:${hDef.id}:${param}`;
-            if (!emittedCaps.has(heCapKey)) {
-              emittedCaps.add(heCapKey);
-              const rA = hDef.rowAfromP(param), cA = hDef.colAfromP(param);
-              const rB = hDef.rowBfromP(param), cB = hDef.colBfromP(param);
-              const piA = overlayMask[hDef.faceA]?.[rA]?.[cA];
-              const piB = overlayMask[hDef.faceB]?.[rB]?.[cB];
-              if (piA?.active && piB?.active) {
-                const cpi = heRole === 'A' ? piA : piB;
-                // Tri-corner: if this cap's long dimension is at a boundary parameter
-                // (0 or 7) and the adjacent vertical-corner face also has overlay,
-                // clip the long dimension to stop at the ±4.0 boundary.
-                let cW = hDef.capW, cD = hDef.capD;
-                let xAdj = 0, zAdj = 0;
-                const bnd = hDef.boundaries.find(b => b.param === param);
-                if (bnd) {
-                  const adjActive = overlayMask[bnd.adjFace]?.[bnd.adjRow]?.[bnd.adjCol]?.active;
-                  if (adjActive) {
-                    if (hDef.capW === pixelSize) { cW = CORNER_CLIP_W; xAdj = bnd.shiftX; }
-                    if (hDef.capD === pixelSize) { cD = CORNER_CLIP_W; zAdj = bnd.shiftZ; }
-                  }
-                }
-                const rawCPos = hDef.getCapCenter(param, piA.pixelOffset, piB.pixelOffset);
-                const cPos = { x: rawCPos.x + xAdj, y: rawCPos.y, z: rawCPos.z + zAdj };
-                const capFaceBounds: Partial<Record<number, SolidPixelUVBounds>> = {};
-                assignAxisFacePixels(capFaceBounds, hDef.faceA, piA, hDef.faceA !== 'top' && hDef.faceA !== 'bottom');
-                assignAxisFacePixels(capFaceBounds, hDef.faceB, piB, hDef.faceB !== 'top' && hDef.faceB !== 'bottom');
-                const capGeom = buildBoxGeometryWithFacePixels(
-                  cW,
-                  hDef.capH,
-                  cD,
-                  cpi,
-                  capFaceBounds
-                );
-                capGeom.translate(cPos.x, cPos.y, cPos.z);
-                geometries.push(capGeom);
-              }
+              visibleFaces[fi] = true;
             }
           }
         }
 
-        // ── Build the main voxel (dimensions clipped where needed) ──────────
-        const voxelW = clipW ? CORNER_CLIP_W : pixelSize;
-        const voxelH = clipH ? CORNER_CLIP_W : pixelSize;
-        const geom = buildBoxGeometry(voxelW, voxelH, THICKNESS, info.uMin, info.uMax, info.vMin, info.vMax);
+        // Apply secondary priority-based coordinate offsets for perpendicular side walls to prevent Z-fighting at corners without leaving gaps
+        for (let fi = 0; fi < 4; fi++) {
+          if (!visibleFaces[fi]) continue;
+          
+          if (fi === 0 || fi === 1) { // X-facing faces (check Y-facing boundaries)
+            const bTop = getBoundaryNeighbor(face.key, row, col, 2);
+            if (bTop && isNeighborActive(bTop) && getPriority(face.key) < getPriority(bTop.face)) {
+              if (fi === 0) xMax -= 0.005;
+              else if (fi === 1) xMin += 0.005;
+            }
+            const bBottom = getBoundaryNeighbor(face.key, row, col, 3);
+            if (bBottom && isNeighborActive(bBottom) && getPriority(face.key) < getPriority(bBottom.face)) {
+              if (fi === 0) xMax -= 0.005;
+              else if (fi === 1) xMin += 0.005;
+            }
+          } else if (fi === 2 || fi === 3) { // Y-facing faces (check X-facing boundaries)
+            const bRight = getBoundaryNeighbor(face.key, row, col, 0);
+            if (bRight && isNeighborActive(bRight) && getPriority(face.key) < getPriority(bRight.face)) {
+              if (fi === 2) yMax -= 0.005;
+              else if (fi === 3) yMin += 0.005;
+            }
+            const bLeft = getBoundaryNeighbor(face.key, row, col, 1);
+            if (bLeft && isNeighborActive(bLeft) && getPriority(face.key) < getPriority(bLeft.face)) {
+              if (fi === 2) yMax -= 0.005;
+              else if (fi === 3) yMin += 0.005;
+            }
+          }
+        }
+
+        const w = xMax - xMin;
+        const h = yMax - yMin;
+
+        // Local center coords
+        const local_cx = xMin + w / 2;
+        const local_cy = yMin + h / 2;
+        const local_cz = info.pixelOffset + THICKNESS / 2;
+
+        const geom = buildCulledBoxGeometry(
+          w, h, THICKNESS,
+          info.uMin, info.uMax, info.vMin, info.vMax,
+          visibleFaces
+        );
+        geom.translate(local_cx, local_cy, local_cz);
         face.applyRotation(geom);
-        geom.translate(pos.x, pos.y, pos.z);
         geometries.push(geom);
       }
     }
   });
 
-  // ─── Pass 3: Tri-corner cubes ─────────────────────────────────────────────
-  // At each of the 8 head corners where 3 faces meet, if all 3 faces have
-  // overlay at the corner pixel, place a THICKNESS³ cube at the exact corner.
-  // This fills the gap left by the 3 clipped caps (each of which now stops
-  // exactly at the ±4.0 boundary on its clipped axis).
-  const triCorners = [
-    // front-top-right
-    { f1: 'front', r1: 0, c1: 7, f2: 'right', r2: 0, c2: 0, f3: 'top', r3: 7, c3: 7,
-      sx:  1, sy:  1, sz:  1 },
-    // front-top-left
-    { f1: 'front', r1: 0, c1: 0, f2: 'left', r2: 0, c2: 7, f3: 'top', r3: 7, c3: 0,
-      sx: -1, sy:  1, sz:  1 },
-    // front-bottom-right
-    { f1: 'front', r1: 7, c1: 7, f2: 'right', r2: 7, c2: 0, f3: 'bottom', r3: 7, c3: 0,
-      sx:  1, sy: -1, sz:  1 },
-    // front-bottom-left
-    { f1: 'front', r1: 7, c1: 0, f2: 'left', r2: 7, c2: 7, f3: 'bottom', r3: 7, c3: 7,
-      sx: -1, sy: -1, sz:  1 },
-    // back-top-right
-    { f1: 'back', r1: 0, c1: 0, f2: 'right', r2: 0, c2: 7, f3: 'top', r3: 0, c3: 7,
-      sx:  1, sy:  1, sz: -1 },
-    // back-top-left
-    { f1: 'back', r1: 0, c1: 7, f2: 'left', r2: 0, c2: 0, f3: 'top', r3: 0, c3: 0,
-      sx: -1, sy:  1, sz: -1 },
-    // back-bottom-right
-    { f1: 'back', r1: 7, c1: 0, f2: 'right', r2: 7, c2: 7, f3: 'bottom', r3: 0, c3: 0,
-      sx:  1, sy: -1, sz: -1 },
-    // back-bottom-left
-    { f1: 'back', r1: 7, c1: 7, f2: 'left', r2: 7, c2: 0, f3: 'bottom', r3: 0, c3: 7,
-      sx: -1, sy: -1, sz: -1 },
-  ];
-
-  for (const tc of triCorners) {
-    const i1 = overlayMask[tc.f1]?.[tc.r1]?.[tc.c1];
-    const i2 = overlayMask[tc.f2]?.[tc.r2]?.[tc.c2];
-    const i3 = overlayMask[tc.f3]?.[tc.r3]?.[tc.c3];
-    if (i1?.active && i2?.active && i3?.active) {
-      // Use f1's pixel for UV, and compute the per-axis offset from each face's pixelOffset
-      const xOfs = i2.pixelOffset;  // right/left face provides x position
-      const yOfs = i3.pixelOffset;  // top/bottom face provides y position
-      const zOfs = i1.pixelOffset;  // front/back face provides z position
-      const tcFaceBounds: Partial<Record<number, SolidPixelUVBounds>> = {};
-      assignAxisFacePixels(tcFaceBounds, tc.f1, i1, tc.f1 !== 'top' && tc.f1 !== 'bottom');
-      assignAxisFacePixels(tcFaceBounds, tc.f2, i2, tc.f2 !== 'top' && tc.f2 !== 'bottom');
-      assignAxisFacePixels(tcFaceBounds, tc.f3, i3, tc.f3 !== 'top' && tc.f3 !== 'bottom');
-      const tcFaceGeom = buildBoxGeometryWithFacePixels(
-        THICKNESS,
-        THICKNESS,
-        THICKNESS,
-        i1,
-        tcFaceBounds
-      );
-      tcFaceGeom.translate(
-        tc.sx * (xOfs + THICKNESS / 2),
-        tc.sy * (yOfs + THICKNESS / 2),
-        tc.sz * (zOfs + THICKNESS / 2)
-      );
-      geometries.push(tcFaceGeom);
-    }
-  }
 
 
   const voxelMaterial = new THREE.MeshStandardMaterial({
@@ -925,7 +861,7 @@ export function buildVoxelizedOverlayWithRelief(
   });
 
   if (geometries.length > 0) {
-    const mergedGeom = mergeBufferGeometries(geometries);
+    const mergedGeom = removeExactDuplicateTriangles(mergeBufferGeometries(geometries));
     geometries.forEach((g) => g.dispose());
     
     const mesh = new THREE.Mesh(mergedGeom, voxelMaterial);
@@ -936,6 +872,21 @@ export function buildVoxelizedOverlayWithRelief(
   }
 
   return group;
+}
+
+export function buildVoxelizedOverlayWithRelief(
+  skinImage: HTMLImageElement,
+  heightmap?: any
+): THREE.Group {
+  return buildVoxelizedOverlayWithReliefInternal(skinImage, heightmap, 0);
+}
+
+export function buildVoxelizedOverlayWithReliefForExport(
+  skinImage: HTMLImageElement,
+  heightmap?: any,
+  boundaryInset = 0.02
+): THREE.Group {
+  return buildVoxelizedOverlayWithReliefInternal(skinImage, heightmap, boundaryInset);
 }
 
 /**
